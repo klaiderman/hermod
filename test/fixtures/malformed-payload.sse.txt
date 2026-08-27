@@ -1,0 +1,4 @@
+data: {"message":{"author":{"role":"assistant"},"content":{"content_type":"text","parts":"this-should-be-an-array-not-a-string"},"status":"finished_successfully"}}
+
+data: [DONE]
+

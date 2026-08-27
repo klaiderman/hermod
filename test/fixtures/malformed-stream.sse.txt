@@ -1,0 +1,4 @@
+data: {"message":{"author":{"role":"assistant"},"content":{"content_type":"text","parts":["Here is a partial answer that starts fine"]},"status":"in_progress"}}
+
+data: {"message": {this is not valid json at all ...
+

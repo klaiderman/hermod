@@ -1,0 +1,8 @@
+data: {"message":{"author":{"role":"assistant"},"content":{"content_type":"text","parts":["The three "]},"metadata":{"model_slug":"gpt-4o-mini"},"status":"in_progress"},"conversation_id":"conv-abc"}
+
+data: {"message":{"author":{"role":"assistant"},"content":{"content_type":"text","parts":["The three largest countries in Europe by population are "]},"metadata":{"model_slug":"gpt-4o-mini"},"status":"in_progress"},"conversation_id":"conv-abc"}
+
+data: {"message":{"author":{"role":"assistant"},"content":{"content_type":"text","parts":["The three largest countries in Europe by population are **Russia**, **Germany**, and **the United Kingdom**.\n\nSee the source below."]},"metadata":{"model_slug":"gpt-4o-mini","citations":[{"metadata":{"url":"https://example.com/eu-population","title":"Europe population figures"}}]},"status":"finished_successfully"},"conversation_id":"conv-abc"}
+
+data: [DONE]
+
