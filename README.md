@@ -1,0 +1,164 @@
+# Hermod
+
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![Node](https://img.shields.io/badge/node-20%2B-blue.svg)](package.json) [![NestJS](https://img.shields.io/badge/NestJS-11-e0234e.svg?logo=nestjs)](package.json) [![tests](https://img.shields.io/badge/tests-50%20passing-brightgreen.svg)](test/) [![Repository](https://img.shields.io/badge/GitHub-klaiderman%2Fhermod-181717?logo=github)](https://github.com/klaiderman/hermod)
+
+Hermod answers an LLM prompt by driving a real, signed-out browser to ChatGPT's own web UI, submitting the prompt the way a person would, and reading the answer back as normalized JSON. There is no model and no API key inside Hermod: it never calls the OpenAI API — the answer comes out of the site's own front end, and Hermod is the layer that drives that front end, classifies what comes back, and refuses to dress a block up as a success.
+
+The name is Hermod, the Norse messenger who rode down and past the gate of Hel to bring a message back from the dead. That is the job here: cross the anti-bot barrier, bring back the oracle's answer — and when the gate holds, come back and say so plainly rather than inventing one.
+
+## Contents
+
+- [Why](#why)
+- [Architecture](#architecture)
+- [How it works](#how-it-works)
+- [Design notes](docs/design-notes.md)
+- [Install](#install)
+- [Using it](#using-it)
+- [Testing](#testing)
+- [The audit](#the-audit)
+- [Roadmap](#roadmap)
+- [Scope and ethics](#scope-and-ethics)
+
+## Why
+
+Collecting answers from consumer LLM sites at scale is hard for reasons that have nothing to do with the answer: the sites are JavaScript-heavy, gated by anti-bot challenges and rate limits, and increasingly hostile to anything that looks automated. Doing it *signed-out*, with no account and no cookies, throws away every shortcut — you can't lean on a session token or the documented API, you have to earn each answer through the same front door a human uses.
+
+The interesting constraint is that the front door is the whole point. The reliable way through a challenge is not to reverse-engineer it, it is to let the site's own JavaScript solve it inside a real browser and then read the result. That inverts the usual instinct — you stop fighting the page and start driving it — and it is what keeps the thing working when the site changes its internals next week.
+
+And the genuinely hard part isn't getting one answer, it is being honest about the ones you don't get. A challenge page, a rate-limit, a stream that drops halfway — each of those is a different, classifiable outcome, and the discipline of the whole service is turning them into typed errors instead of returning a blank, a half-answer, or a challenge screen as though it were the model talking. What reaches the caller is either a real answer or a precise reason there isn't one.
+
+## Architecture
+
+<p align="center">
+  <img src="docs/architecture.svg" width="840" alt="Hermod architecture">
+</p>
+
+A request comes through one thin controller into the `ScrapeEngine`, which is the site-agnostic hub: it acquires a browser context, wraps the whole attempt in the resilience policy (four timers, bounded retries), drives a per-site strategy, and classifies whatever comes back. The strategy is the only thing that knows a specific site — it drives the signed-out UI in a pooled incognito context and reads the answer off the page — and the block detector turns anything that isn't an answer into a typed error. The engine never knows which site it's driving, so adding a target is one new strategy file plus one registry line, with zero engine edits.
+
+```
+hermod/
+├── src/
+│   ├── queries/          # HTTP layer: controller (POST /v1/queries), engine, DTO
+│   ├── scrapers/         # site-agnostic strategy + registry; chatgpt/ strategy; SSE + DOM readers
+│   ├── browser/          # BrowserManager (one Chromium) + ContextPool (incognito contexts)
+│   ├── block-detection/  # three-layer block detector + tunable markers
+│   ├── common/           # typed errors, exception filter, cockatiel resilience, patterns, logging
+│   ├── config/           # boot-validated typed config
+│   └── health/           # GET /health
+├── test/                 # unit (browser-free) · integration (real Chromium) · fixtures
+└── docs/                 # design notes + architecture.svg
+```
+
+## How it works
+
+A request lands, the DTO is validated, and the engine asks the registry for a strategy by source name. It acquires one incognito browser context from a pool (the concurrency cap), navigates to the signed-out UI, types the prompt, and lets OpenAI's own JavaScript run its challenge — Sentinel proof-of-work, the `conduit_token` handshake, Turnstile. Then it reads the answer as it renders and normalizes it.
+
+When a request fails, it fails as one of a small set of classified outcomes, each a different way reality diverged from a clean answer:
+
+- **`TARGET_BLOCKED`** — a confirmed block (403/503), or a 200-challenge page that outlasted the retries. Terminal; never hammered.
+- **`TARGET_RATE_LIMITED`** — the target returned a 429. Terminal; backing off harder only makes it worse.
+- **`TARGET_TIMEOUT`** — one of four timers fired (navigation, first-byte, inter-delta idle, or the outer wall-clock).
+- **`PARTIAL_RESPONSE`** — the stream started and dropped with no terminal marker. The salvage is returned as a typed 504, never as a success.
+- **`EMPTY_RESPONSE` / `PARSING_FAILED`** — the stream completed but carried nothing, or something the answer schema didn't recognize.
+
+A model refusal ("I can't help with that") is a valid answer, not a block — the detector only fires on anti-bot signals, never on what the model actually said. An ambiguous 200-challenge is retried on a fresh context a bounded number of times, and only if it survives that budget does it settle into a terminal `TARGET_BLOCKED` — so a transient interstitial gets a second chance while a real block is surfaced immediately.
+
+The reasoning behind the less obvious choices — the actual surface signed-out ChatGPT serves, why the answer is read from the DOM, the four-timer split, why headless gets challenged and Xvfb doesn't — is in [docs/design-notes.md](docs/design-notes.md).
+
+## Install
+
+Requires Node 20+ and a Chromium that Patchright can drive.
+
+```bash
+git clone https://github.com/klaiderman/hermod
+cd hermod
+npm ci
+npx patchright install chromium     # one-time: fetch Patchright's patched Chromium
+cp .env.example .env                 # set CHATGPT_BASE_URL (required)
+npm run start:dev
+```
+
+The app refuses to start if a required env var is missing or malformed — a container that boots half-configured is a lie. At minimum set `CHATGPT_BASE_URL`.
+
+## Using it
+
+One endpoint. Send a prompt, get a normalized answer:
+
+```bash
+curl -X POST http://localhost:3000/v1/queries \
+  -H "Content-Type: application/json" \
+  -d '{ "source": "chatgpt", "prompt": "Which language spoken in Israel?", "parse": true }'
+```
+
+```jsonc
+{
+  "results": [{
+    "source": "chatgpt",
+    "content": {
+      "prompt": "Which language spoken in Israel?",
+      "response_text": "Hebrew is the primary and official language…",  // plain text (markdown stripped)
+      "markdown_text": "…",        // raw markdown when parse=true, else null
+      "citations": [ { "title": "…", "url": "…" } ],  // [] when none
+      "llm_model": null,           // slug when the surface exposes it, else null (never guessed)
+      "conversation_id": null,     // when available, else null
+      "search_queries": []         // web-search queries the model ran, when exposed
+    },
+    "status_code": 200
+  }],
+  "meta": { "request_id": "…", "duration_ms": 4821 }
+}
+```
+
+`parse=false` returns `response_text` as the raw text with everything else nulled. `geo_location` is accepted and validated but currently inert (see the proxy seam in the design notes). Every request is tagged with a `request_id` that honors an inbound `X-Request-Id`, is echoed on the response header, and is threaded through every log line.
+
+Failures come back classified, never as `{ "error": "something went wrong" }`:
+
+```jsonc
+{ "error": { "code": "TARGET_BLOCKED", "message": "…", "retryable": false },
+  "meta": { "request_id": "…" } }
+```
+
+| `error.code` | HTTP | retryable |
+|---|---|---|
+| `INVALID_REQUEST` | 400 | no |
+| `UNSUPPORTED_SOURCE` | 422 | no |
+| `TARGET_RATE_LIMITED` | 429 | no |
+| `TARGET_BLOCKED` | 403 | no (a 200-challenge is retried, then terminal) |
+| `TARGET_TIMEOUT` | 504 | inner timers yes, wall-clock no |
+| `PARTIAL_RESPONSE` | 504 | no (salvage returned in `partial`) |
+| `EMPTY_RESPONSE` | 502 | yes |
+| `PARSING_FAILED` | 502 | no |
+| `TARGET_UNAVAILABLE` | 503 | no |
+| `INTERNAL_ERROR` | 500 | no |
+
+This is a backend service, not an MCP server or an agent tool — you call it over HTTP and it drives a browser on the other side. It ships in Docker (`docker build -t hermod . && docker run -p 3000:3000 -e CHATGPT_BASE_URL=https://chatgpt.com hermod`), which runs the browser headful under Xvfb so there is no window and no headless fingerprint.
+
+## Testing
+
+```bash
+npm test        # unit — pure logic, no browser
+npm run test:e2e  # integration — HTTP contract + real Chromium against stubbed network
+```
+
+The 41 unit tests cover each piece in isolation — SSE framing, the block detector, the markdown stripper, the DTO — and drive the whole engine against a fake strategy with tiny configured timeouts, so every failure path the assignment asks about (validation, unsupported source, success, timeout, rate-limit, blocked, retry, parse-failure) runs deterministically in milliseconds with no browser and no waiting. The 9 e2e tests exercise the real HTTP contract with the browser mocked, plus a real headless Chromium against a `page.route`-stubbed network to prove the capture and block-detection paths against actual DOM. Everything runs on fixtures, so code correctness is decoupled from whatever the live site is doing that day.
+
+## The audit
+
+The interesting half of the work was running it against the real site, which a fixture will never do honestly. Three things fell out of it.
+
+Driving it live immediately surfaced a **crash bug** the unit tests couldn't: `waitForResponse` is armed before the prompt is submitted, and when a submit step failed the promise was left unawaited — on context teardown it rejected with "Target page has been closed" as an unhandled rejection that took the whole process down. Fixed by keeping it handled and adding a process-level guard so no stray browser promise can ever kill the service.
+
+It also corrected a **wrong assumption baked into the plan**: signed-out ChatGPT doesn't serve the classic anonymous JSON event-stream, it serves an `unauth-mweb` surface that renders the answer into the DOM as HTML partials. So `waitForResponse` on the old endpoint never resolved. The strategy was re-pointed to an incremental DOM read; the SSE-JSON parser stays for the authenticated surface. And a smaller finding underneath it — **Patchright's stealth disables `addInitScript`/`exposeFunction`**, which killed the in-page streaming tee I'd built first. All three, plus the headless-vs-Xvfb behaviour, are written up in the [design notes](docs/design-notes.md).
+
+Separately, an adversarial pass over the error taxonomy and resilience wiring against the spec turned up one real defect — an exhausted challenge surfaced with `retryable: true`, inviting a client to re-hammer a settled block — now fixed so it lands as a terminal `TARGET_BLOCKED`.
+
+## Roadmap
+
+- **Proxy pool and geo routing** — the `geo_location` field and the `resolveProxy(geo)` seam exist; wiring a residential/mobile proxy provider there is the only change needed to make geographic behaviour real and to spread block risk across IPs.
+- **True streaming under Patchright** — the DOM read gives ordered deltas but not raw byte-level streaming. CDP `Fetch.takeResponseBodyAsStream` would give a genuinely incremental SSE read without reintroducing the detectable in-page tee.
+- **At-scale operability** — per-target block-rate observability (the verdicts are already logged), warm-context/session reuse, and a real async job queue behind the sync endpoint so a slow browser turn doesn't hold an HTTP connection.
+- **Gemini** — not implemented on purpose: signed-out Gemini needs an account cookie, which crosses the no-login boundary. The investigation is in the design notes; adding it is one strategy file if a viable signed-out path appears.
+
+## Scope and ethics
+
+This is an authorized exercise. It drives the site's own visible, signed-out UI, lets the site's own JavaScript run any challenge, and detects-and-reports blocking rather than circumventing it. It defeats no authentication, uses no one's credentials, and ships no CAPTCHA-solving, token-forging, or fingerprint-spoofing. Scraping these signed-out surfaces is against the targets' terms of service; the honest-limitations writing here and in the design notes — why signed-out Gemini isn't viable, why headless gets challenged, where the real-browser-vs-live-site probabilism lives — is the point, not a disclaimer.
