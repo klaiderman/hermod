@@ -30,7 +30,7 @@ And the genuinely hard part isn't getting one answer, it is being honest about t
 ## Architecture
 
 <p align="center">
-  <img src="docs/architecture.svg" width="840" alt="Hermod architecture">
+  <img src="docs/architecture.svg" width="940" alt="Hermod architecture">
 </p>
 
 A request comes through one thin controller into the `ScrapeEngine`, which is the site-agnostic hub: it acquires a browser context, wraps the whole attempt in the resilience policy (four timers, bounded retries), drives a per-site strategy, and classifies whatever comes back. The strategy is the only thing that knows a specific site — it drives the signed-out UI in a pooled incognito context and reads the answer off the page — and the block detector turns anything that isn't an answer into a typed error. The engine never knows which site it's driving, so adding a target is one new strategy file plus one registry line, with zero engine edits.
