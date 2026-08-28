@@ -58,7 +58,7 @@ The reasoning behind the less obvious choices (the actual surface signed-out Cha
 Requires Node 20+.
 
 ```bash
-git clone https://github.com/klaiderman/hermod
+npx degit klaiderman/hermod hermod
 cd hermod
 npm install
 cp .env.example .env
