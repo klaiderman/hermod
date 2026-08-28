@@ -7,6 +7,7 @@
   "private": true,
   "scripts": {
     "build": "nest build",
+    "postinstall": "patchright install chromium",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",

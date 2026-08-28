@@ -9,11 +9,9 @@ ARG PLAYWRIGHT_VERSION=v1.52.0-jammy
 FROM mcr.microsoft.com/playwright:${PLAYWRIGHT_VERSION} AS builder
 WORKDIR /app
 
-# The runtime stage installs the browser, so skip it here to keep the layer small.
-ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
-    PATCHRIGHT_SKIP_BROWSER_DOWNLOAD=1
+# The runtime stage installs the browser, so skip the postinstall here to keep the layer small.
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN npm ci --ignore-scripts
 
 COPY tsconfig.json tsconfig.build.json nest-cli.json ./
 COPY src ./src

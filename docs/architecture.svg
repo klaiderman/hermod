@@ -76,8 +76,7 @@
     <path d="M462,176 C500,176 500,95 532,95"/>
     <path d="M462,176 C500,176 500,267 532,267"/>
     <line x1="686" y1="95" x2="762" y2="93"/>
-    <path d="M870,94 C892,94 892,118 916,120"/>
+    <line x1="872" y1="86" x2="900" y2="86"/>
   </g>
-  <!-- the answer read back into the strategy -->
-  <path d="M922,259 C820,259 720,200 720,150 720,124 704,116 690,112" stroke="#6f8fbf" stroke-width="1.5" fill="none" stroke-dasharray="5 4" marker-end="url(#ah)"/>
+  <line x1="900" y1="104" x2="872" y2="104" stroke="#6f8fbf" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#ah)"/>
 </svg>
