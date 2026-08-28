@@ -1,0 +1,9 @@
+services:
+  hermod:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      CHATGPT_BASE_URL: ${CHATGPT_BASE_URL:-https://chatgpt.com}
+    shm_size: "1gb"
+    restart: unless-stopped

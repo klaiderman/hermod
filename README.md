@@ -55,17 +55,28 @@ The reasoning behind the less obvious choices (the actual surface signed-out Cha
 
 ## Install
 
-Requires Node 20+.
+Get the source (no git needed):
 
 ```bash
 npx degit klaiderman/hermod hermod
 cd hermod
+```
+
+**With Docker (recommended).** No Node or browser setup. It runs headful Chromium under Xvfb, so there is no window and no headless fingerprint:
+
+```bash
+docker compose up --build
+```
+
+That serves on `http://localhost:3000`. Point it at a different target, or tune any of the knobs, by editing `docker-compose.yml` (or `CHATGPT_BASE_URL=... docker compose up`).
+
+**Locally (Node 20+).** `npm install` also pulls the Chromium that Patchright drives, and the app refuses to start unless `CHATGPT_BASE_URL` is set:
+
+```bash
 npm install
 cp .env.example .env
 npm run start:dev
 ```
-
-`npm install` also downloads the Chromium that Patchright drives. The app refuses to start if a required env var is missing or malformed, so at minimum set `CHATGPT_BASE_URL` in `.env`.
 
 ## Using it
 
@@ -122,7 +133,7 @@ Failures come back classified, never as `{ "error": "something went wrong" }`:
 | `TARGET_UNAVAILABLE` | 503 | no |
 | `INTERNAL_ERROR` | 500 | no |
 
-This is a backend service, not an MCP server or an agent tool: you call it over HTTP and it drives a browser on the other side. It ships in Docker (`docker build -t hermod . && docker run -p 3000:3000 -e CHATGPT_BASE_URL=https://chatgpt.com hermod`), which runs the browser headful under Xvfb so there is no window and no headless fingerprint.
+This is a backend service, not an MCP server or an agent tool: you call it over HTTP and it drives a browser on the other side. It ships as a Docker image (see [Install](#install)) that runs the browser headful under Xvfb, so there is no window and no headless fingerprint.
 
 ## Testing
 
