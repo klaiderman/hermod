@@ -21,7 +21,7 @@ The name is Hermod, the Norse messenger who rode down and past the gate of Hel t
 
 ## Why
 
-Collecting answers from consumer LLM sites at scale is hard for reasons that have nothing to do with the answer: the sites are JavaScript-heavy, gated by anti-bot challenges and rate limits, and increasingly hostile to anything that looks automated. Doing it *signed-out*, with no account and no cookies, throws away every shortcut. You can't lean on a session token or the documented API, so you have to earn each answer through the same front door a human uses.
+Collecting answers from consumer LLM sites at scale is hard for reasons that have nothing to do with the answer: the sites are JavaScript-heavy, gated by anti-bot challenges and rate limits, and increasingly hostile to anything that looks automated. Doing it _signed-out_, with no account and no cookies, throws away every shortcut. You can't lean on a session token or the documented API, so you have to earn each answer through the same front door a human uses.
 
 The interesting constraint is that the front door is the whole point. The reliable way through a challenge is not to reverse-engineer it, it is to let the site's own JavaScript solve it inside a real browser and then read the result. That inverts the usual instinct: you stop fighting the page and start driving it, and it is what keeps the thing working when the site changes its internals next week.
 
@@ -41,13 +41,13 @@ A request lands, the DTO is validated, and the engine asks the registry for a st
 
 When a request fails, it fails as one of a small set of classified outcomes, each a different way reality diverged from a clean answer:
 
-| status | what it means |
-| --- | --- |
-| `TARGET_BLOCKED` | A confirmed block (403/503), or a 200-challenge page that outlasted the retries. Terminal, never hammered. |
-| `TARGET_RATE_LIMITED` | The target returned a 429. Terminal, because backing off harder only makes it worse. |
-| `TARGET_TIMEOUT` | One of four timers fired: navigation, first-byte, inter-delta idle, or the outer wall-clock. |
-| `PARTIAL_RESPONSE` | The stream started and dropped with no terminal marker. The salvage is returned as a typed 504, never as a success. |
-| `EMPTY_RESPONSE` / `PARSING_FAILED` | The stream completed but carried nothing, or something the answer schema didn't recognize. |
+| status                              | what it means                                                                                                       |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `TARGET_BLOCKED`                    | A confirmed block (403/503), or a 200-challenge page that outlasted the retries. Terminal, never hammered.          |
+| `TARGET_RATE_LIMITED`               | The target returned a 429. Terminal, because backing off harder only makes it worse.                                |
+| `TARGET_TIMEOUT`                    | One of four timers fired: navigation, first-byte, inter-delta idle, or the outer wall-clock.                        |
+| `PARTIAL_RESPONSE`                  | The stream started and dropped with no terminal marker. The salvage is returned as a typed 504, never as a success. |
+| `EMPTY_RESPONSE` / `PARSING_FAILED` | The stream completed but carried nothing, or something the answer schema didn't recognize.                          |
 
 A model refusal ("I can't help with that") is a valid answer, not a block: the detector only fires on anti-bot signals, never on what the model actually said. An ambiguous 200-challenge is retried on a fresh context a bounded number of times, and only if it survives that budget does it settle into a terminal `TARGET_BLOCKED`, so a transient interstitial gets a second chance while a real block is surfaced immediately.
 
@@ -109,7 +109,7 @@ curl -X POST http://localhost:3000/v1/queries \
 }
 ```
 
-`response_text` is the answer as plain text and `markdown_text` keeps the raw markdown; `citations`, `llm_model`, `conversation_id`, and `search_queries` are filled in when the surface exposes them, and are empty or null otherwise. `parse=false` returns `response_text` as the raw text with everything else nulled. `geo_location` is accepted and validated but currently inert (see the proxy seam in the design notes). Every request is tagged with a `request_id` that honors an inbound `X-Request-Id`, is echoed on the response header, and is threaded through every log line.
+`response_text` is the answer as plain text and `markdown_text` keeps the raw markdown. The signed-out surface doesn't expose a model id, a conversation id, or the model's search queries, so `llm_model`, `conversation_id`, and `search_queries` come back null or empty here; they populate on the authenticated `backend-api` surface that does expose them, as `citations` does whenever the answer carries them. Nothing is guessed: a field the page doesn't give up stays null. `parse=false` returns `response_text` as the raw text with everything else nulled. `geo_location` is accepted and validated but currently inert (see the proxy seam in the design notes). Every request is tagged with a `request_id` that honors an inbound `X-Request-Id`, is echoed on the response header, and is threaded through every log line.
 
 Failures come back classified, never as `{ "error": "something went wrong" }`:
 
@@ -120,18 +120,18 @@ Failures come back classified, never as `{ "error": "something went wrong" }`:
 }
 ```
 
-| `error.code` | HTTP | retryable |
-| --- | --- | --- |
-| `INVALID_REQUEST` | 400 | no |
-| `UNSUPPORTED_SOURCE` | 422 | no |
-| `TARGET_RATE_LIMITED` | 429 | no |
-| `TARGET_BLOCKED` | 403 | no (a 200-challenge is retried, then terminal) |
-| `TARGET_TIMEOUT` | 504 | inner timers yes, wall-clock no |
-| `PARTIAL_RESPONSE` | 504 | no (salvage returned in `partial`) |
-| `EMPTY_RESPONSE` | 502 | yes |
-| `PARSING_FAILED` | 502 | no |
-| `TARGET_UNAVAILABLE` | 503 | no |
-| `INTERNAL_ERROR` | 500 | no |
+| `error.code`          | HTTP | retryable                                      |
+| --------------------- | ---- | ---------------------------------------------- |
+| `INVALID_REQUEST`     | 400  | no                                             |
+| `UNSUPPORTED_SOURCE`  | 422  | no                                             |
+| `TARGET_RATE_LIMITED` | 429  | no                                             |
+| `TARGET_BLOCKED`      | 403  | no (a 200-challenge is retried, then terminal) |
+| `TARGET_TIMEOUT`      | 504  | inner timers yes, wall-clock no                |
+| `PARTIAL_RESPONSE`    | 504  | no (salvage returned in `partial`)             |
+| `EMPTY_RESPONSE`      | 502  | yes                                            |
+| `PARSING_FAILED`      | 502  | no                                             |
+| `TARGET_UNAVAILABLE`  | 503  | no                                             |
+| `INTERNAL_ERROR`      | 500  | no                                             |
 
 This is a backend service, not an MCP server or an agent tool: you call it over HTTP and it drives a browser on the other side. It ships as a Docker image (see [Install](#install)) that runs the browser headful under Xvfb, so there is no window and no headless fingerprint.
 
