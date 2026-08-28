@@ -1,5 +1,6 @@
 import type { BrowserContext, Page } from 'patchright';
 import { ContextPool } from '../../src/browser/context-pool.service';
+import { Conversation, ConversationManager } from '../../src/queries/conversation-manager.service';
 import { HermodConfigService } from '../../src/config/hermod-config.service';
 import {
   EmptyResponseError,
@@ -35,9 +36,13 @@ interface AttemptBehavior {
 class FakeStrategy implements ScraperStrategy {
   readonly source = 'chatgpt' as const;
   attempts = 0;
+  continueCalls = 0;
   private current: AttemptBehavior = {};
 
-  constructor(private readonly behaviors: AttemptBehavior[]) {}
+  constructor(
+    private readonly behaviors: AttemptBehavior[],
+    private readonly continueDeltas: NormalizedDelta[] = [],
+  ) {}
 
   async prepare(_page: Page, _req: ScrapeRequest): Promise<void> {
     this.current = this.behaviors[this.attempts] ?? this.behaviors[this.behaviors.length - 1] ?? {};
@@ -80,6 +85,14 @@ class FakeStrategy implements ScraperStrategy {
     return this.current.behavioral ?? NONE;
   }
 
+  async *continueTurn(_page: Page, _req: ScrapeRequest): AsyncIterable<NormalizedDelta> {
+    this.continueCalls += 1;
+
+    for (const d of this.continueDeltas) {
+      yield d;
+    }
+  }
+
   readModeFor(): ReadMode {
     return 'sse';
   }
@@ -89,7 +102,7 @@ function fakePool() {
   const destroy = jest.fn(async () => undefined);
   const release = jest.fn(async () => undefined);
   const page = { close: async () => undefined } as unknown as Page;
-  const ctx = { newPage: async () => page } as unknown as BrowserContext;
+  const ctx = { newPage: async () => page, close: async () => undefined } as unknown as BrowserContext;
   const pool = {
     acquire: jest.fn(async () => ctx),
     release,
@@ -97,7 +110,29 @@ function fakePool() {
     stats: () => ({ size: 1, available: 0, borrowed: 1, pending: 0 }),
   } as unknown as ContextPool;
 
-  return { pool, destroy, release, acquire: pool.acquire as jest.Mock };
+  return { pool, destroy, release, ctx, page, acquire: pool.acquire as jest.Mock };
+}
+
+function fakeConversations(session?: Conversation) {
+  const open = jest.fn((id: string) => id);
+  const touch = jest.fn();
+  const get = jest.fn(() => session);
+  const ensureCapacity = jest.fn();
+
+  return {
+    conversations: {
+      get,
+      open,
+      touch,
+      ensureCapacity,
+      close: jest.fn(async () => undefined),
+      size: 0,
+    } as unknown as ConversationManager,
+    open,
+    touch,
+    get,
+    ensureCapacity,
+  };
 }
 
 function fakeConfig(): HermodConfigService {
@@ -128,10 +163,16 @@ function registryWith(strategy: ScraperStrategy): ScraperRegistry {
   } as unknown as ScraperRegistry;
 }
 
-function makeEngine(strategy: ScraperStrategy, poolBundle = fakePool()) {
-  const engine = new ScrapeEngine(registryWith(strategy), poolBundle.pool, fakeConfig(), logger);
+function makeEngine(strategy: ScraperStrategy, poolBundle = fakePool(), convoBundle = fakeConversations()) {
+  const engine = new ScrapeEngine(
+    registryWith(strategy),
+    poolBundle.pool,
+    convoBundle.conversations,
+    fakeConfig(),
+    logger,
+  );
 
-  return { engine, ...poolBundle };
+  return { engine, ...poolBundle, ...convoBundle };
 }
 
 const req = (over: Partial<ScrapeRequest> = {}): ScrapeRequest => ({
@@ -146,7 +187,7 @@ const done: NormalizedDelta = { index: 99, text: '', done: true };
 
 describe('ScrapeEngine', () => {
   it('returns a normalized answer on a healthy stream (parse=true)', async () => {
-    const { engine, release, destroy } = makeEngine(
+    const { engine, open, destroy } = makeEngine(
       new FakeStrategy([
         {
           deltas: [
@@ -170,10 +211,11 @@ describe('ScrapeEngine', () => {
     expect(result.content.markdown_text).toBe('**Hello** world');
     expect(result.content.llm_model).toBe('gpt-4o-mini');
     expect(result.content.citations).toEqual([{ url: 'https://x.test' }]);
-    expect(result.content.conversation_id).toBe('conv-1');
+    expect(typeof result.content.conversation_id).toBe('string');
+    expect(open).toHaveBeenCalledWith(result.content.conversation_id, 'chatgpt', expect.anything(), expect.anything());
     expect(result.content.search_queries).toEqual(['largest countries europe']);
     expect(result.attempts).toBe(1);
-    expect(release).toHaveBeenCalledTimes(1);
+    expect(open).toHaveBeenCalledTimes(1);
     expect(destroy).not.toHaveBeenCalled();
   });
 
@@ -187,8 +229,27 @@ describe('ScrapeEngine', () => {
     expect(result.content.markdown_text).toBeNull();
     expect(result.content.citations).toEqual([]);
     expect(result.content.llm_model).toBeNull();
-    expect(result.content.conversation_id).toBeNull();
+    expect(typeof result.content.conversation_id).toBe('string');
     expect(result.content.search_queries).toEqual([]);
+  });
+
+  it('discards a tool/status placeholder when a reset delta replaces it', async () => {
+    const { engine } = makeEngine(
+      new FakeStrategy([
+        {
+          deltas: [
+            { index: 0, text: 'Searching the web', done: false },
+            { index: 1, text: 'The time in New York is 8:31 AM.', done: false, reset: true },
+            done,
+          ],
+        },
+      ]),
+    );
+    const result = await engine.execute(req());
+
+    expect(result.content.response_text).toBe('The time in New York is 8:31 AM.');
+    expect(result.content.markdown_text).toBe('The time in New York is 8:31 AM.');
+    expect(result.content.response_text).not.toContain('Searching the web');
   });
 
   it('rejects an unsupported source before acquiring a context (422)', async () => {
@@ -293,17 +354,59 @@ describe('ScrapeEngine', () => {
     });
   });
 
-  it('recovers on retry: challenge then success (destroy first, release second)', async () => {
+  it('recovers on retry: challenge then success (destroy the poisoned context, hold the healthy one)', async () => {
     const strategy = new FakeStrategy([
       { verdict: { blocked: true, reason: 'challenge', layer: 'content' } },
       { deltas: [{ index: 0, text: 'recovered', done: false }, done] },
     ]);
-    const { engine, destroy, release } = makeEngine(strategy);
+    const { engine, destroy, open } = makeEngine(strategy);
     const result = await engine.execute(req());
 
     expect(result.content.response_text).toBe('recovered');
     expect(result.attempts).toBe(2);
     expect(destroy).toHaveBeenCalledTimes(1);
-    expect(release).toHaveBeenCalledTimes(1);
+    expect(open).toHaveBeenCalledTimes(1);
+  });
+
+  it('mints a conversation id when the caller supplies none', async () => {
+    const strategy = new FakeStrategy([{ deltas: [{ index: 0, text: 'hi', done: false }, done] }]);
+    const { engine, open, ensureCapacity } = makeEngine(strategy);
+    const result = await engine.execute(req());
+
+    expect(typeof result.content.conversation_id).toBe('string');
+    expect(open).toHaveBeenCalledWith(result.content.conversation_id, 'chatgpt', expect.anything(), expect.anything());
+    expect(ensureCapacity).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens a new conversation on an unknown id, borrowing a pooled context', async () => {
+    const strategy = new FakeStrategy([{ deltas: [{ index: 0, text: 'Hi Gilad', done: false }, done] }]);
+    const { engine, open, acquire, destroy } = makeEngine(strategy, fakePool(), fakeConversations(undefined));
+    const result = await engine.execute(req({ conversationId: 'gilad', prompt: 'My name is Gilad' }));
+
+    expect(result.content.response_text).toBe('Hi Gilad');
+    expect(result.content.conversation_id).toBe('gilad');
+    expect(acquire).toHaveBeenCalledTimes(1);
+    expect(open).toHaveBeenCalledWith('gilad', 'chatgpt', expect.anything(), expect.anything());
+    expect(destroy).not.toHaveBeenCalled();
+  });
+
+  it('continues an existing conversation in the same page, without borrowing a context', async () => {
+    const session: Conversation = {
+      id: 'gilad',
+      source: 'chatgpt',
+      page: {} as Page,
+      context: {} as BrowserContext,
+      turns: 1,
+      lastUsedAt: 0,
+    };
+    const strategy = new FakeStrategy([], [{ index: 0, text: 'Your name is Gilad', done: false }, done]);
+    const { engine, touch, acquire } = makeEngine(strategy, fakePool(), fakeConversations(session));
+    const result = await engine.execute(req({ conversationId: 'gilad', prompt: 'What is my name?' }));
+
+    expect(result.content.response_text).toBe('Your name is Gilad');
+    expect(result.content.conversation_id).toBe('gilad');
+    expect(strategy.continueCalls).toBe(1);
+    expect(touch).toHaveBeenCalledWith('gilad');
+    expect(acquire).not.toHaveBeenCalled();
   });
 });

@@ -1,7 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
-import { TaskCancelledError } from 'cockatiel';
+import { TaskCancelledError, timeout, TimeoutStrategy } from 'cockatiel';
 import { PinoLogger } from 'nestjs-pino';
-import type { BrowserContext, Page } from 'patchright';
+import type { Page } from 'patchright';
 import { ContextPool } from '../browser/context-pool.service';
 import { HermodConfigService } from '../config/hermod-config.service';
 import {
@@ -15,7 +16,8 @@ import { buildResiliencePolicy } from '../common/resilience/resilience.policy';
 import { ScraperRegistry } from '../scrapers/scraper.registry';
 import { stripMarkdown } from '../scrapers/markdown-strip';
 import { consumeStream, AccumulatedAnswer } from '../scrapers/stream-consumer';
-import { BlockVerdict, ReadMode, ScrapeRequest, ScraperStrategy } from '../scrapers/scraper.types';
+import { BlockVerdict, ScrapeRequest, ScraperStrategy } from '../scrapers/scraper.types';
+import { Conversation, ConversationManager } from './conversation-manager.service';
 import { EngineResult, QueryContent } from './query.types';
 
 @Injectable()
@@ -23,6 +25,7 @@ export class ScrapeEngine {
   constructor(
     private readonly registry: ScraperRegistry,
     private readonly pool: ContextPool,
+    private readonly conversations: ConversationManager,
     private readonly config: HermodConfigService,
     private readonly logger: PinoLogger,
   ) {
@@ -32,96 +35,136 @@ export class ScrapeEngine {
   async execute(req: ScrapeRequest): Promise<EngineResult> {
     const strategy = this.registry.get(req.source);
 
+    if (req.conversationId) {
+      const session = this.conversations.get(req.conversationId);
+
+      return session
+        ? this.continueConversation(strategy, req, session)
+        : this.openConversation(strategy, req, req.conversationId);
+    }
+
+    return this.openConversation(strategy, req, randomUUID());
+  }
+
+  private async openConversation(strategy: ScraperStrategy, req: ScrapeRequest, id: string): Promise<EngineResult> {
+    this.conversations.ensureCapacity();
+
     const policy = buildResiliencePolicy(this.config.retry, this.config.timeouts.wallClockMs);
 
     let attempts = 0;
-    let firstByteLatencyMs = 0;
-    let readMode: ReadMode = 'sse';
 
     try {
-      const answer = await policy.execute(async () => {
+      const outcome = await policy.execute(async () => {
         attempts += 1;
-        const outcome = await this.runAttempt(strategy, req, attempts);
+        const context = await this.pool.acquire();
+        const page = await context.newPage();
 
-        firstByteLatencyMs = outcome.answer.firstByteLatencyMs;
-        readMode = outcome.readMode;
+        try {
+          const answer = await this.runFirstTurn(strategy, page, req, attempts);
 
-        return outcome.answer;
+          return { answer, readMode: strategy.readModeFor(page), context, page };
+        } catch (e) {
+          await page.close().catch(() => undefined);
+          await this.pool.destroy(context);
+          this.logAttemptFailed(req, attempts, e);
+          throw e;
+        }
       });
+
+      this.conversations.open(id, req.source, outcome.context, outcome.page);
 
       this.logger.info(
         {
           requestId: req.requestId,
           source: req.source,
+          mode: 'open',
+          conversationId: id,
           attempts,
-          firstByteLatencyMs,
-          readMode,
+          firstByteLatencyMs: outcome.answer.firstByteLatencyMs,
+          readMode: outcome.readMode,
+          liveConversations: this.conversations.size,
           status: 'ok',
-          ...this.pool.stats(),
         },
-        'query completed',
+        'conversation opened',
       );
 
       return {
-        content: this.buildContent(req, answer),
+        content: this.buildContent(req, outcome.answer, id),
         attempts,
-        firstByteLatencyMs,
-        readMode,
+        firstByteLatencyMs: outcome.answer.firstByteLatencyMs,
+        readMode: outcome.readMode,
       };
     } catch (e) {
       throw this.translateBoundary(e, req, attempts);
     }
   }
 
-  private async runAttempt(
+  private async continueConversation(
     strategy: ScraperStrategy,
     req: ScrapeRequest,
-    attemptNo: number,
-  ): Promise<{ answer: AccumulatedAnswer; readMode: ReadMode }> {
-    const ctx: BrowserContext = await this.pool.acquire();
-    let poisoned = false;
-    let page: Page | null = null;
+    session: Conversation,
+  ): Promise<EngineResult> {
+    const wallClock = timeout(this.config.timeouts.wallClockMs, TimeoutStrategy.Aggressive);
 
     try {
-      page = await ctx.newPage();
-      await strategy.prepare(page, req);
-      const res = await strategy.submitAndAwaitResponse(page, req);
+      const answer = await wallClock.execute(() => {
+        const deltas = strategy.continueTurn(session.page, req);
 
-      const verdict = await strategy.detectBlock(page, res);
-
-      if (verdict.blocked) {
-        this.logVerdict(req, attemptNo, verdict);
-        throw this.verdictToError(verdict);
-      }
-
-      const deltas = strategy.streamDeltas(res, page, req);
-      const answer = await consumeStream(deltas, strategy, page, {
-        firstByteMs: this.config.timeouts.firstByteMs,
-        idleMs: this.config.timeouts.idleMs,
+        return consumeStream(deltas, strategy, session.page, {
+          firstByteMs: this.config.timeouts.firstByteMs,
+          idleMs: this.config.timeouts.idleMs,
+        });
       });
 
-      return { answer, readMode: strategy.readModeFor(page) };
-    } catch (e) {
-      poisoned = true;
-      const errorCode = e instanceof ScraperError ? e.errorCode : 'INTERNAL_ERROR';
-      const retryable = e instanceof ScraperError ? e.retryable : false;
+      this.conversations.touch(session.id);
 
-      this.logger.warn(
-        { requestId: req.requestId, source: req.source, attempt: attemptNo, errorCode, retryable },
-        'attempt failed',
+      this.logger.info(
+        {
+          requestId: req.requestId,
+          source: req.source,
+          mode: 'continue',
+          conversationId: session.id,
+          turn: session.turns,
+          firstByteLatencyMs: answer.firstByteLatencyMs,
+          status: 'ok',
+        },
+        'conversation continued',
       );
-      throw e;
-    } finally {
-      if (page) {
-        await page.close().catch(() => undefined);
-      }
 
-      if (poisoned) {
-        await this.pool.destroy(ctx);
-      } else {
-        await this.pool.release(ctx);
-      }
+      return {
+        content: this.buildContent(req, answer, session.id),
+        attempts: 1,
+        firstByteLatencyMs: answer.firstByteLatencyMs,
+        readMode: strategy.readModeFor(session.page),
+      };
+    } catch (e) {
+      this.logAttemptFailed(req, 1, e);
+      throw this.translateBoundary(e, req, 1);
     }
+  }
+
+  private async runFirstTurn(
+    strategy: ScraperStrategy,
+    page: Page,
+    req: ScrapeRequest,
+    attemptNo: number,
+  ): Promise<AccumulatedAnswer> {
+    await strategy.prepare(page, req);
+    const res = await strategy.submitAndAwaitResponse(page, req);
+
+    const verdict = await strategy.detectBlock(page, res);
+
+    if (verdict.blocked) {
+      this.logVerdict(req, attemptNo, verdict);
+      throw this.verdictToError(verdict);
+    }
+
+    const deltas = strategy.streamDeltas(res, page, req);
+
+    return consumeStream(deltas, strategy, page, {
+      firstByteMs: this.config.timeouts.firstByteMs,
+      idleMs: this.config.timeouts.idleMs,
+    });
   }
 
   private verdictToError(verdict: BlockVerdict): ScraperError {
@@ -137,7 +180,7 @@ export class ScrapeEngine {
     }
   }
 
-  private buildContent(req: ScrapeRequest, answer: AccumulatedAnswer): QueryContent {
+  private buildContent(req: ScrapeRequest, answer: AccumulatedAnswer, conversationId: string | null): QueryContent {
     if (!req.parse) {
       return {
         prompt: req.prompt,
@@ -145,7 +188,7 @@ export class ScrapeEngine {
         markdown_text: null,
         citations: [],
         llm_model: null,
-        conversation_id: null,
+        conversation_id: conversationId,
         search_queries: [],
       };
     }
@@ -156,7 +199,7 @@ export class ScrapeEngine {
       markdown_text: answer.markdown,
       citations: answer.citations,
       llm_model: answer.model,
-      conversation_id: answer.conversationId,
+      conversation_id: conversationId,
       search_queries: answer.searchQueries,
     };
   }
@@ -187,6 +230,16 @@ export class ScrapeEngine {
     }
 
     return e instanceof Error ? e : new Error(String(e));
+  }
+
+  private logAttemptFailed(req: ScrapeRequest, attemptNo: number, e: unknown): void {
+    const errorCode = e instanceof ScraperError ? e.errorCode : 'INTERNAL_ERROR';
+    const retryable = e instanceof ScraperError ? e.retryable : false;
+
+    this.logger.warn(
+      { requestId: req.requestId, source: req.source, attempt: attemptNo, errorCode, retryable },
+      'attempt failed',
+    );
   }
 
   private logVerdict(req: ScrapeRequest, attemptNo: number, verdict: BlockVerdict): void {

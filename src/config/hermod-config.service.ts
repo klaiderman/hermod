@@ -22,6 +22,14 @@ export interface RetryConfig {
   backoffMaxMs: number;
 }
 
+export interface ConversationConfig {
+  ttlMs: number;
+  max: number;
+}
+
+// max mirrors the pool ceiling: a held conversation borrows a pooled context, so
+// the number of live conversations can never exceed the pool's hard cap.
+
 export interface BrowserConfig {
   headless: boolean;
   offscreen: boolean;
@@ -81,6 +89,13 @@ export class HermodConfigService {
       maxAttempts: this.config.get('RETRY_MAX_ATTEMPTS', { infer: true }),
       backoffInitialMs: this.config.get('BACKOFF_INITIAL_MS', { infer: true }),
       backoffMaxMs: this.config.get('BACKOFF_MAX_MS', { infer: true }),
+    };
+  }
+
+  get conversation(): ConversationConfig {
+    return {
+      ttlMs: this.config.get('CONVERSATION_TTL_MS', { infer: true }),
+      max: this.config.get('POOL_MAX', { infer: true }),
     };
   }
 

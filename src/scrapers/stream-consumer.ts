@@ -154,7 +154,12 @@ class Accumulator {
   private readonly seenSearchQueries = new Set<string>();
 
   add(delta: NormalizedDelta): void {
-    this.markdown += delta.text;
+    if (delta.reset) {
+      this.markdown = delta.text;
+    } else {
+      this.markdown += delta.text;
+    }
+
     this.contentDeltas++;
     this.addMetadata(delta);
   }

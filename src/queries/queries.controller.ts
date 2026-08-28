@@ -28,6 +28,10 @@ export class QueriesController {
       scrapeRequest.geoLocation = dto.geo_location;
     }
 
+    if (dto.conversation_id !== undefined) {
+      scrapeRequest.conversationId = dto.conversation_id;
+    }
+
     const result = await this.engine.execute(scrapeRequest);
 
     return {

@@ -9,6 +9,7 @@ export interface NormalizedDelta {
   index: number;
   text: string;
   done: boolean;
+  reset?: boolean;
   citations?: Citation[];
   model?: string | null;
   conversationId?: string | null;
@@ -32,6 +33,7 @@ export interface ScrapeRequest {
   prompt: string;
   parse: boolean;
   geoLocation?: string;
+  conversationId?: string;
   requestId: string;
 }
 
@@ -57,6 +59,8 @@ export interface ScraperStrategy {
   ): AsyncIterable<NormalizedDelta>;
 
   detectBlock(page: import('patchright').Page, res: StrategyResponse | null): Promise<BlockVerdict>;
+
+  continueTurn(page: import('patchright').Page, req: ScrapeRequest): AsyncIterable<NormalizedDelta>;
 
   readModeFor(page: import('patchright').Page): ReadMode;
 }

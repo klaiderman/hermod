@@ -4,6 +4,7 @@ import { SourceKey } from '../../scrapers/scraper.types';
 export const MAX_PROMPT_LENGTH = 8000;
 export const MAX_GEO_LENGTH = 64;
 export const MAX_SOURCE_LENGTH = 64;
+export const MAX_CONVERSATION_ID_LENGTH = 128;
 
 export class CreateQueryDto {
   @IsString()
@@ -24,4 +25,10 @@ export class CreateQueryDto {
   @IsString()
   @MaxLength(MAX_GEO_LENGTH)
   geo_location?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(MAX_CONVERSATION_ID_LENGTH)
+  conversation_id?: string;
 }

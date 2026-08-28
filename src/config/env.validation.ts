@@ -124,6 +124,12 @@ export class EnvironmentVariables {
   @IsOptional()
   BACKOFF_MAX_MS = 8000;
 
+  @Transform(toInt)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  CONVERSATION_TTL_MS = 300000;
+
   @IsString()
   @IsOptional()
   PROXY_URL = '';

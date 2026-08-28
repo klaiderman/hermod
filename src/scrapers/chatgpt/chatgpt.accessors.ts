@@ -12,6 +12,8 @@ export const CHATGPT = {
 
   sendButtonSelector: 'button[aria-label*="Send" i], [data-testid="send-button"]',
 
+  stopButtonSelector: 'button[aria-label*="Stop" i], [data-testid="stop-button"]',
+
   assistantMessageSelector: '[data-message-role="assistant"], [data-message-author-role="assistant"]',
 
   attributionPrefix: 'ChatGPT said:',

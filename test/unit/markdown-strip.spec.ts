@@ -9,6 +9,18 @@ describe('stripMarkdown', () => {
     expect(stripMarkdown('See [the docs](https://example.com/docs) now.')).toBe('See the docs now.');
   });
 
+  it('normalizes typographic punctuation to ASCII in the plain-text field', () => {
+    const md = 'I’ll say “hi” — wait… the 3″ pipe.';
+
+    expect(stripMarkdown(md)).toBe('I\'ll say "hi" - wait... the 3" pipe.');
+  });
+
+  it('drops zero-width and private-use glyphs and normalizes non-breaking spaces', () => {
+    const md = 'x​y z!';
+
+    expect(stripMarkdown(md)).toBe('xy z!');
+  });
+
   it('removes heading and list markers', () => {
     const md = '# Title\n\n- one\n- two\n\n1. first\n2. second';
 

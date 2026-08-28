@@ -17,6 +17,7 @@ import { CHATGPT, chatgptResponsePredicate, createChatGptSseAccessors, stripAttr
 
 const DOM_POLL_MS = 400;
 const DOM_SETTLE_MS = 1800;
+const POST_GEN_DRAIN_MS = 1200;
 const DOM_READ_TIMEOUT_MS = 1500;
 const EVENT_STREAM_CONTENT_TYPE = 'text/event-stream';
 
@@ -106,6 +107,14 @@ export class ChatGptStrategy implements ScraperStrategy {
     yield* this.domStream(page);
   }
 
+  async *continueTurn(page: Page, req: ScrapeRequest): AsyncIterable<NormalizedDelta> {
+    const baseline = await page.locator(CHATGPT.assistantMessageSelector).count();
+
+    await this.submitPrompt(page, req.prompt);
+    this.readModes.set(page, 'dom');
+    yield* this.domStream(page, baseline);
+  }
+
   async detectBlock(page: Page, res: StrategyResponse | null): Promise<BlockVerdict> {
     if (res) {
       const byStatus = this.detector.fromStatus(res.status);
@@ -137,18 +146,19 @@ export class ChatGptStrategy implements ScraperStrategy {
     }
   }
 
-  private async *domStream(page: Page): AsyncIterable<NormalizedDelta> {
-    const answer = page.locator(CHATGPT.assistantMessageSelector).last();
-
-    try {
-      await answer.waitFor({ state: 'attached', timeout: this.config.timeouts.firstByteMs });
-    } catch {
+  private async *domStream(page: Page, baselineTurns = 0): AsyncIterable<NormalizedDelta> {
+    if (!(await this.waitForNewTurn(page, baselineTurns))) {
       return;
     }
+
+    const answer = page.locator(CHATGPT.assistantMessageSelector).last();
+    const stopButton = page.locator(CHATGPT.stopButtonSelector);
 
     let emitted = '';
     let index = 0;
     let stableMs = 0;
+    let endedMs = 0;
+    let sawGenerating = false;
     const hardCap = this.config.timeouts.wallClockMs;
     let elapsed = 0;
 
@@ -156,21 +166,32 @@ export class ChatGptStrategy implements ScraperStrategy {
       const raw = await answer.innerText({ timeout: DOM_READ_TIMEOUT_MS }).catch(() => '');
       const text = stripAttribution(raw);
 
-      if (text.length > emitted.length && text.startsWith(emitted)) {
+      if (text === emitted || text.length === 0) {
+        stableMs += DOM_POLL_MS;
+      } else if (text.startsWith(emitted)) {
         const increment = text.slice(emitted.length);
 
         emitted = text;
         stableMs = 0;
         yield { index: index++, text: increment, done: false };
-      } else if (text.length > 0 && text === emitted) {
-        stableMs += DOM_POLL_MS;
-      } else if (text.length > 0 && !text.startsWith(emitted)) {
+      } else {
         emitted = text;
         stableMs = 0;
-        yield { index: index++, text, done: false };
+        yield { index: index++, text, done: false, reset: true };
       }
 
-      if (emitted.length > 0 && stableMs >= DOM_SETTLE_MS) {
+      const generating = (await stopButton.count()) > 0;
+
+      if (generating) {
+        sawGenerating = true;
+        endedMs = 0;
+      } else if (sawGenerating) {
+        endedMs += DOM_POLL_MS;
+      }
+
+      const finished = sawGenerating ? endedMs >= POST_GEN_DRAIN_MS : emitted.length > 0 && stableMs >= DOM_SETTLE_MS;
+
+      if (finished) {
         const match = CONVERSATION_ID_IN_URL.exec(page.url());
 
         yield { index: index++, text: '', done: true, conversationId: match?.[1] ?? null };
@@ -184,6 +205,23 @@ export class ChatGptStrategy implements ScraperStrategy {
 
       await page.waitForTimeout(DOM_POLL_MS);
       elapsed += DOM_POLL_MS;
+    }
+  }
+
+  private async waitForNewTurn(page: Page, baselineTurns: number): Promise<boolean> {
+    const answers = page.locator(CHATGPT.assistantMessageSelector);
+    const deadline = Date.now() + this.config.timeouts.firstByteMs;
+
+    for (;;) {
+      if ((await answers.count()) > baselineTurns) {
+        return true;
+      }
+
+      if (Date.now() >= deadline) {
+        return false;
+      }
+
+      await page.waitForTimeout(DOM_POLL_MS);
     }
   }
 }

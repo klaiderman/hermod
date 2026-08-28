@@ -35,6 +35,10 @@ const happyStrategy: ScraperStrategy = {
   async detectBlock() {
     return NONE;
   },
+  async *continueTurn(): AsyncIterable<NormalizedDelta> {
+    yield { index: 0, text: 'follow-up answer', done: false };
+    yield { index: 1, text: '', done: true };
+  },
   readModeFor(): ReadMode {
     return 'sse';
   },
