@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 340" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 456" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
   <defs>
     <marker id="ah" markerWidth="10" markerHeight="8" refX="7" refY="3" orient="auto" markerUnits="userSpaceOnUse">
       <path d="M0,0 L8,3 L0,6 Z" fill="#9cc4ff"/>
@@ -8,83 +8,94 @@
     </pattern>
   </defs>
 
-  <rect x="0" y="0" width="1240" height="340" rx="10" fill="#0b1e39"/>
-  <rect x="0" y="0" width="1240" height="340" rx="10" fill="url(#grid)"/>
-  <rect x="1" y="1" width="1238" height="338" rx="10" fill="none" stroke="#2b4d75" stroke-width="2"/>
+  <rect x="0" y="0" width="1200" height="456" rx="10" fill="#0b1e39"/>
+  <rect x="0" y="0" width="1200" height="456" rx="10" fill="url(#grid)"/>
+  <rect x="1" y="1" width="1198" height="454" rx="10" fill="none" stroke="#2b4d75" stroke-width="2"/>
 
-  <!-- the signed-out ChatGPT surface (the site's own JS runs all of this) -->
-  <rect x="902" y="40" width="316" height="264" rx="10" fill="#0e2a4d" stroke="#6f8fbf" stroke-width="1.5" stroke-dasharray="5 4"/>
-  <text x="1060" y="66" text-anchor="middle" fill="#e6f0ff" font-size="13">chatgpt.com &#183; signed-out</text>
-  <text x="1060" y="84" text-anchor="middle" fill="#8fb3e0" font-size="9.5">the site's own JS clears these; we never reimplement them</text>
+  <!-- Hermod -->
+  <text x="34" y="46" fill="#e6f0ff" font-size="16">Hermod</text>
+  <text x="34" y="66" fill="#8fb3e0" font-size="11">one HTTP request, a real signed-out browser, a classified answer</text>
 
-  <g stroke="#9cc4ff" stroke-width="1.5" fill="#0f3f52">
-    <rect x="922" y="100" width="134" height="50" rx="6"/>
-    <rect x="1066" y="100" width="134" height="50" rx="6"/>
-    <rect x="922" y="166" width="134" height="50" rx="6"/>
-    <rect x="1066" y="166" width="134" height="50" rx="6"/>
-    <rect x="922" y="234" width="278" height="50" rx="6"/>
-  </g>
-  <g fill="#e6f0ff" font-size="12" text-anchor="middle">
-    <text x="989"  y="122">Sentinel PoW</text>
-    <text x="1133" y="122">conduit_token</text>
-    <text x="989"  y="188">unauth-mweb</text>
-    <text x="1133" y="188">Turnstile</text>
-    <text x="1061" y="256">answer &#8594; the DOM</text>
-  </g>
-  <g fill="#8fb3e0" font-size="9" text-anchor="middle">
-    <text x="989"  y="138">chat-requirements</text>
-    <text x="1133" y="138">/conversation/prepare</text>
-    <text x="989"  y="204">HTML partials</text>
-    <text x="1133" y="204">Cloudflare</text>
-    <text x="1061" y="272">web-mobile-partial HTML, rendered</text>
-  </g>
-
-  <!-- the gauntlet the site runs, in order -->
-  <g stroke="#9cc4ff" stroke-width="1.5" fill="none" marker-end="url(#ah)">
-    <line x1="1056" y1="125" x2="1064" y2="125"/>
-    <line x1="1133" y1="150" x2="1133" y2="164"/>
-    <line x1="1066" y1="191" x2="1058" y2="191"/>
-    <line x1="989"  y1="216" x2="989"  y2="232"/>
-  </g>
-
-  <!-- Hermod's own components -->
   <g stroke="#9cc4ff" stroke-width="2" fill="#12335a">
-    <rect x="24"  y="150" width="96"  height="52" rx="7"/>
-    <rect x="144" y="150" width="140" height="52" rx="7"/>
-    <rect x="312" y="146" width="150" height="60" rx="7"/>
-    <rect x="536" y="66"  width="150" height="58" rx="7"/>
-    <rect x="536" y="238" width="230" height="58" rx="7"/>
+    <rect x="24"  y="224" width="96"  height="52" rx="7"/>
+    <rect x="144" y="224" width="140" height="52" rx="7"/>
+    <rect x="312" y="220" width="150" height="60" rx="7"/>
+    <rect x="520" y="150" width="160" height="60" rx="7"/>
+    <rect x="520" y="322" width="240" height="60" rx="7"/>
   </g>
 
-  <!-- Chromium (the browser we drive) -->
   <g stroke="#9cc4ff" stroke-width="2" fill="#0f3f52">
-    <path d="M766,72 V116 A52,8 0 0 0 870,116 V72"/>
-    <ellipse cx="818" cy="72" rx="52" ry="8"/>
+    <path d="M738,158 V202 A52,8 0 0 0 842,202 V158"/>
+    <ellipse cx="790" cy="158" rx="52" ry="8"/>
   </g>
 
   <g fill="#e6f0ff" font-size="14" text-anchor="middle">
-    <text x="72"  y="181">client</text>
-    <text x="214" y="181">/v1/queries</text>
-    <text x="387" y="172">ScrapeEngine</text>
-    <text x="611" y="91">ChatGptStrategy</text>
-    <text x="651" y="264">block detector</text>
-    <text x="818" y="98">Chromium</text>
+    <text x="72"  y="255">client</text>
+    <text x="214" y="255">/v1/queries</text>
+    <text x="387" y="246">ScrapeEngine</text>
+    <text x="600" y="176">ChatGptStrategy</text>
+    <text x="640" y="348">block detector</text>
+    <text x="790" y="184">Chromium</text>
   </g>
   <g fill="#8fb3e0" font-size="10" text-anchor="middle">
-    <text x="387" y="189">resilience &#183; four timers</text>
-    <text x="611" y="108">drive UI &#183; read the DOM</text>
-    <text x="651" y="281">status &#183; body &#183; DOM &#8594; typed errors</text>
-    <text x="818" y="111">N contexts</text>
+    <text x="387" y="263">resilience &#183; four timers</text>
+    <text x="600" y="193">drive UI &#183; read the DOM</text>
+    <text x="640" y="365">status &#183; body &#183; DOM &#8594; typed errors</text>
+    <text x="790" y="197">N contexts</text>
+  </g>
+
+  <!-- chatgpt.com signed-out: the flow the site's own JS runs, top to bottom -->
+  <rect x="872" y="44" width="304" height="390" rx="10" fill="#0e2a4d" stroke="#6f8fbf" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <text x="1040" y="72" text-anchor="middle" fill="#e6f0ff" font-size="14">chatgpt.com &#183; signed-out</text>
+  <text x="1040" y="90" text-anchor="middle" fill="#8fb3e0" font-size="9">cleared by the site's own JS, never reimplemented</text>
+
+  <g stroke="#9cc4ff" stroke-width="1.5" fill="#0f3f52">
+    <rect x="920" y="106" width="248" height="46" rx="6"/>
+    <rect x="920" y="170" width="248" height="46" rx="6"/>
+    <rect x="920" y="234" width="248" height="46" rx="6"/>
+    <rect x="920" y="298" width="248" height="46" rx="6"/>
+    <rect x="920" y="362" width="248" height="46" rx="6"/>
+  </g>
+  <g fill="#12335a" stroke="#9cc4ff" stroke-width="1.5">
+    <circle cx="906" cy="129" r="9"/>
+    <circle cx="906" cy="193" r="9"/>
+    <circle cx="906" cy="257" r="9"/>
+    <circle cx="906" cy="321" r="9"/>
+    <circle cx="906" cy="385" r="9"/>
+  </g>
+  <g fill="#e6f0ff" font-size="9.5" text-anchor="middle">
+    <text x="906" y="132">1</text>
+    <text x="906" y="196">2</text>
+    <text x="906" y="260">3</text>
+    <text x="906" y="324">4</text>
+    <text x="906" y="388">5</text>
+  </g>
+  <g fill="#e6f0ff" font-size="12.5" text-anchor="middle">
+    <text x="1044" y="127">Turnstile</text>
+    <text x="1044" y="191">Sentinel PoW</text>
+    <text x="1044" y="255">conduit_token</text>
+    <text x="1044" y="319">unauth-mweb</text>
+    <text x="1044" y="383">answer &#8594; the DOM</text>
+  </g>
+  <g fill="#8fb3e0" font-size="9" text-anchor="middle">
+    <text x="1044" y="142">Cloudflare challenge</text>
+    <text x="1044" y="206">chat-requirements handshake</text>
+    <text x="1044" y="270">from /conversation/prepare</text>
+    <text x="1044" y="334">the conversation surface</text>
+    <text x="1044" y="398">web-mobile-partial HTML, rendered</text>
   </g>
 
   <!-- flow -->
   <g stroke="#9cc4ff" stroke-width="2" fill="none" marker-end="url(#ah)">
-    <line x1="120" y1="176" x2="140" y2="176"/>
-    <line x1="284" y1="176" x2="308" y2="176"/>
-    <path d="M462,176 C500,176 500,95 532,95"/>
-    <path d="M462,176 C500,176 500,267 532,267"/>
-    <line x1="686" y1="95" x2="762" y2="93"/>
-    <line x1="872" y1="86" x2="900" y2="86"/>
+    <line x1="120" y1="250" x2="140" y2="250"/>
+    <line x1="284" y1="250" x2="308" y2="250"/>
+    <path d="M462,250 C500,250 500,180 516,180"/>
+    <path d="M462,250 C500,250 500,352 516,352"/>
+    <line x1="680" y1="180" x2="734" y2="180"/>
+    <path d="M844,176 C878,176 878,129 916,129"/>
+    <line x1="1044" y1="152" x2="1044" y2="168"/>
+    <line x1="1044" y1="216" x2="1044" y2="232"/>
+    <line x1="1044" y1="280" x2="1044" y2="296"/>
+    <line x1="1044" y1="344" x2="1044" y2="360"/>
   </g>
-  <line x1="900" y1="104" x2="872" y2="104" stroke="#6f8fbf" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#ah)"/>
 </svg>
