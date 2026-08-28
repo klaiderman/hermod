@@ -1,6 +1,6 @@
 # Hermod
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![Node](https://img.shields.io/badge/node-20%2B-blue.svg)](package.json) [![NestJS](https://img.shields.io/badge/NestJS-11-e0234e.svg?logo=nestjs)](package.json) [![tests](https://img.shields.io/badge/tests-50%20passing-brightgreen.svg)](test/) [![Repository](https://img.shields.io/badge/GitHub-klaiderman%2Fhermod-181717?logo=github)](https://github.com/klaiderman/hermod)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![Node](https://img.shields.io/badge/node-20%2B-blue.svg)](package.json) [![NestJS](https://img.shields.io/badge/NestJS-11-e0234e.svg?logo=nestjs)](package.json) [![tests](https://img.shields.io/badge/tests-56%20passing-brightgreen.svg)](test/) [![Repository](https://img.shields.io/badge/GitHub-klaiderman%2Fhermod-181717?logo=github)](https://github.com/klaiderman/hermod)
 
 Hermod answers an LLM prompt by driving a real, signed-out browser to ChatGPT's own web UI, submitting the prompt the way a person would, and reading the answer back as normalized JSON. There is no model and no API key inside Hermod: it never calls the OpenAI API. The answer comes out of the site's own front end, and Hermod is the layer that drives that front end, classifies what comes back, and refuses to dress a block up as a success.
 
@@ -14,6 +14,7 @@ The name is Hermod, the Norse messenger who rode down and past the gate of Hel t
 - [Design notes](docs/design-notes.md)
 - [Install](#install)
 - [Using it](#using-it)
+- [Conversations](#conversations)
 - [Testing](#testing)
 - [The audit](#the-audit)
 - [Roadmap](#roadmap)
@@ -37,7 +38,7 @@ A request comes through one thin controller into the `ScrapeEngine`, which is th
 
 ## How it works
 
-A request lands, the DTO is validated, and the engine asks the registry for a strategy by source name. It acquires one incognito browser context from a pool (the concurrency cap), navigates to the signed-out UI, types the prompt, and lets OpenAI's own JavaScript run its challenge (Sentinel proof-of-work, the `conduit_token` handshake, Turnstile). Then it reads the answer as it renders and normalizes it.
+A request lands, the DTO is validated, and the engine asks the registry for a strategy by source name. It acquires one incognito browser context from a pool (the concurrency cap), navigates to the signed-out UI, types the prompt, and lets OpenAI's own JavaScript run its challenge (Sentinel proof-of-work, the `conduit_token` handshake, Turnstile). Then it reads the answer as it renders and normalizes it. Completion is decided by the page's own generating control (the Stop button), not by "the text stopped changing", so a turn that pauses to run a web search or a tool isn't mistaken for a finished answer, and when a status placeholder is replaced wholesale by the real answer the provisional text is discarded.
 
 When a request fails, it fails as one of a small set of classified outcomes, each a different way reality diverged from a clean answer:
 
@@ -99,7 +100,7 @@ curl -X POST http://localhost:3000/v1/queries \
         "markdown_text": "...",
         "citations": [{ "title": "...", "url": "..." }],
         "llm_model": null,
-        "conversation_id": null,
+        "conversation_id": "e94b1f8a-2c1d-4b7e-9f3a-8d5e0c7a1b22",
         "search_queries": []
       },
       "status_code": 200
@@ -109,7 +110,9 @@ curl -X POST http://localhost:3000/v1/queries \
 }
 ```
 
-`response_text` is the answer as plain text and `markdown_text` keeps the raw markdown. The signed-out surface doesn't expose a model id, a conversation id, or the model's search queries, so `llm_model`, `conversation_id`, and `search_queries` come back null or empty here; they populate on the authenticated `backend-api` surface that does expose them, as `citations` does whenever the answer carries them. Nothing is guessed: a field the page doesn't give up stays null. `parse=false` returns `response_text` as the raw text with everything else nulled. `geo_location` is accepted and validated but currently inert (see the proxy seam in the design notes). Every request is tagged with a `request_id` that honors an inbound `X-Request-Id`, is echoed on the response header, and is threaded through every log line.
+`response_text` is the answer as plain text (typographic punctuation, curly quotes, dashes, ellipses, is normalized to ASCII, and zero-width and control glyphs are stripped) and `markdown_text` keeps the raw markdown verbatim. `conversation_id` is always returned: the server mints one when you don't send it, and reusing it continues the same chat (see [Conversations](#conversations)). `llm_model` and `search_queries` come back null or empty on the signed-out surface, which doesn't expose a model id or the model's search queries; they populate on the authenticated `backend-api` surface that does expose them, as `citations` does whenever the answer carries them. Nothing is guessed: a field the page doesn't give up stays null. `parse=false` returns `response_text` as the raw markdown with everything else nulled (except `conversation_id`). `geo_location` is accepted and validated but currently inert (see the proxy seam in the design notes). Every request is tagged with a `request_id` that honors an inbound `X-Request-Id`, is echoed on the response header, and is threaded through every log line.
+
+The request body: `source` and `prompt` are required; `parse` (default `true`), `conversation_id`, and `geo_location` are optional.
 
 Failures come back classified, never as `{ "error": "something went wrong" }`:
 
@@ -135,6 +138,28 @@ Failures come back classified, never as `{ "error": "something went wrong" }`:
 
 This is a backend service, not an MCP server or an agent tool: you call it over HTTP and it drives a browser on the other side. It ships as a Docker image (see [Install](#install)) that runs the browser headful under Xvfb, so there is no window and no headless fingerprint.
 
+## Conversations
+
+A single query is stateless, but you can hold a multi-turn chat. Every response carries a `conversation_id`, and you get one of two behaviours:
+
+- **Omit it** and the server mints a fresh id and returns it. That is a brand-new, isolated chat.
+- **Send it back** on the next request and the follow-up is typed into the same signed-out ChatGPT page, so the model still has the context. Send an id it has never seen and it simply opens a new chat under that id.
+
+```bash
+# Turn 1: no id sent. The response comes back with a generated conversation_id.
+curl -s -X POST http://localhost:3000/v1/queries \
+  -H "Content-Type: application/json" \
+  -d '{ "source": "chatgpt", "prompt": "My name is Gilad." }'
+
+# Turn 2: send that id back, and it remembers.
+curl -s -X POST http://localhost:3000/v1/queries \
+  -H "Content-Type: application/json" \
+  -d '{ "source": "chatgpt", "prompt": "What is my name?", "conversation_id": "<id from turn 1>" }'
+# -> "Your name is Gilad."
+```
+
+The state is the live browser page, not a saved transcript, so it is deliberately ephemeral and held in memory only. A conversation borrows one context from the same pool and stays live until the earliest of: the process (and its Chromium) stopping, `CONVERSATION_TTL_MS` of idle (default 5 minutes), or eviction once `POOL_MAX` conversations are already open (the least-recently-used one is closed). After any of those, reusing the id transparently starts a fresh chat with no memory. Nothing is written to disk. Durable resume across restarts (by persisting ChatGPT's own conversation handle) is a [roadmap](#roadmap) item, not built.
+
 ## Testing
 
 ```bash
@@ -142,7 +167,7 @@ npm test
 npm run test:e2e
 ```
 
-The 41 unit tests cover each piece in isolation (SSE framing, the block detector, the markdown stripper, the DTO) and drive the whole engine against a fake strategy with tiny configured timeouts, so every failure path the assignment asks about (validation, unsupported source, success, timeout, rate-limit, blocked, retry, parse-failure) runs deterministically in milliseconds with no browser and no waiting. The 9 e2e tests exercise the real HTTP contract with the browser mocked, plus a real headless Chromium against a `page.route`-stubbed network to prove the capture and block-detection paths against actual DOM. Everything runs on fixtures, so code correctness is decoupled from whatever the live site is doing that day.
+The 47 unit tests cover each piece in isolation (SSE framing, the block detector, the markdown stripper and its ASCII normalization, the DTO) and drive the whole engine against a fake strategy with tiny configured timeouts, so every failure path the assignment asks about (validation, unsupported source, success, timeout, rate-limit, blocked, retry, parse-failure) plus the conversation paths (minting an id, opening on a fresh id, continuing in the same page) run deterministically in milliseconds with no browser and no waiting. The 9 e2e tests exercise the real HTTP contract with the browser mocked, plus a real headless Chromium against a `page.route`-stubbed network to prove the capture and block-detection paths against actual DOM. Everything runs on fixtures, so code correctness is decoupled from whatever the live site is doing that day.
 
 ## The audit
 
@@ -154,11 +179,15 @@ It also corrected a **wrong assumption baked into the plan**: signed-out ChatGPT
 
 Separately, an adversarial pass over the error taxonomy and resilience wiring against the spec turned up one real defect: an exhausted challenge surfaced with `retryable: true`, inviting a client to re-hammer a settled block, now fixed so it lands as a terminal `TARGET_BLOCKED`.
 
+A later live run exposed a **completion-detection bug**: a prompt that triggered the web-search tool returned "Searching the web" as the answer. The DOM read had inferred completion from text-stability, and the tool-status placeholder sat still long enough to trip that timer before the real answer rendered. A live DOM spike showed the honest signals: the page's own Stop control marks when generation actually ends, and the answer _replaces_ the placeholder as a wholesale (non-prefix) text change. Completion now keys on the generating control rather than stillness, and a non-prefix replacement resets the accumulated text, so any tool or status placeholder, in any wording, is discarded when the real answer lands, with no hard-coded placeholder strings.
+
 ## Roadmap
 
 - **Proxy pool and geo routing.** The `geo_location` field and the `resolveProxy(geo)` seam exist; wiring a residential or mobile proxy provider there is the only change needed to make geographic behaviour real and to spread block risk across IPs.
 - **True streaming under Patchright.** The DOM read gives ordered deltas but not raw byte-level streaming. CDP `Fetch.takeResponseBodyAsStream` would give a genuinely incremental SSE read without reintroducing the detectable in-page tee.
-- **At-scale operability.** Per-target block-rate observability (the verdicts are already logged), warm-context and session reuse, and a real async job queue behind the sync endpoint so a slow browser turn doesn't hold an HTTP connection.
+- **Durable conversations.** Multi-turn chat works (see [Conversations](#conversations)) but the state is an in-memory browser page bounded by an idle TTL and an LRU cap, so it does not survive a restart. Persisting ChatGPT's own conversation handle and re-opening a page from it would let a caller resume any id, anytime.
+- **DOM citation extraction.** On the signed-out surface the answer's source chips render into the DOM but are not yet lifted into `citations[]`, so a cited source can trail into `response_text` as stray text. Parsing them into the structured field is a contained accessor change.
+- **At-scale operability.** Per-target block-rate observability (the verdicts are already logged), a real async job queue behind the sync endpoint so a slow browser turn doesn't hold an HTTP connection, and horizontal scale (conversations are process-local today, so multiple replicas would need sticky routing or a shared session map).
 - **Gemini.** Not implemented on purpose: signed-out Gemini needs an account cookie, which crosses the no-login boundary. The investigation is in the design notes; adding it is one strategy file if a viable signed-out path appears.
 
 ## Scope and ethics

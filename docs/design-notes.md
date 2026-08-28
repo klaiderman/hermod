@@ -4,11 +4,11 @@ The reasoning behind the choices that aren't obvious from the code, why the answ
 
 ## Why a real browser, and why the site's own JavaScript
 
-Signed-out ChatGPT gates the conversation flow behind challenge JavaScript: OpenAI **Sentinel** (a proof-of-work `chat-requirements` prepare→finalize handshake), a short-lived **`conduit_token`** JWT, and a **Cloudflare Turnstile** widget. Reimplementing that crypto in Node is both out of scope and a losing bet, it breaks on OpenAI's next deploy. A real browser running the site's *own* obfuscated JavaScript clears all of it for free, and it stays working when the internals change. That is the load-bearing decision: **let their code solve their challenge, then read the result.**
+Signed-out ChatGPT gates the conversation flow behind challenge JavaScript: OpenAI **Sentinel** (a proof-of-work `chat-requirements` prepare→finalize handshake), a short-lived **`conduit_token`** JWT, and a **Cloudflare Turnstile** widget. Reimplementing that crypto in Node is both out of scope and a losing bet, it breaks on OpenAI's next deploy. A real browser running the site's _own_ obfuscated JavaScript clears all of it for free, and it stays working when the internals change. That is the load-bearing decision: **let their code solve their challenge, then read the result.**
 
 ## The surface the live spike actually found
 
-The classic anonymous surface everyone writes about (`/backend-anon/conversation`, a `text/event-stream` of JSON deltas ending in `[DONE]`) is *not* what signed-out `chatgpt.com` serves today. Driving it live, the site hands back the **`unauth-mweb`** (unauthenticated mobile-web) experience:
+The classic anonymous surface everyone writes about (`/backend-anon/conversation`, a `text/event-stream` of JSON deltas ending in `[DONE]`) is _not_ what signed-out `chatgpt.com` serves today. Driving it live, the site hands back the **`unauth-mweb`** (unauthenticated mobile-web) experience:
 
 - the composer is a `<textarea>`; the send control is `button[aria-label="Send"]`;
 - the turn is gated by `/unauth-mweb/sentinel/chat-requirements/{prepare,finalize}` and `/unauth-mweb/conversation/prepare`, which returns the `conduit_token`;
@@ -36,16 +36,22 @@ The strategy detects the stream's done-signal; the engine decides whether the an
 
 A partial is a typed `504` carrying `partial: { response_text, markdown_text }`, a caller must never silently consume 60% of an answer as if it were whole.
 
+## The DOM completion signal, and why text-stillness is not it
+
+For the SSE surface the done-signal is the `[DONE]` marker. For the DOM surface there is no such marker, so the first cut inferred completion from text-stability: if the answer text stopped changing for a settle window, call it done. A live run broke that. A prompt that triggered the web-search tool returned `"Searching the web"` as the answer: the tool renders a status placeholder, it sat still longer than the settle window, and the reader declared victory on the placeholder before the real answer arrived.
+
+A DOM spike showed the two honest signals. First, the page has its own **generating control** (a `Stop` button, `button[aria-label*="Stop"]`) that is present exactly while the model is producing a turn and vanishes when it genuinely stops, tool calls included. Second, when the real answer arrives it **replaces** the placeholder as a wholesale, non-prefix change, whereas ordinary streaming only ever appends (each read is a prefix of the next). So completion now keys on the generating control, never on stillness: while `Stop` is present the reader never finishes, and once it clears the reader drains briefly to let the final DOM settle. A non-prefix change emits a `reset` delta that tells the accumulator to discard what it had and restart from the new text, so any tool or status placeholder, in any wording or language, is dropped when the real answer lands. There are deliberately no hard-coded placeholder strings: a string list would be English-only and would rot on the next UI reword, while the structural signals do not. If generation ends with no real content (a signed-out search that yields nothing), the terminal marker fires with zero content and the turn is an honest `EMPTY_RESPONSE`, never a placeholder dressed up as an answer.
+
 ## The four timers
 
 Four timers, four physically different failures, four typed errors:
 
-| timer | bounds | on expiry |
-|---|---|---|
-| per-navigation | Playwright's own `goto` / response headers | navigation `TARGET_TIMEOUT` (retryable) |
-| first-byte | response obtained → first rendered token | inspect the page: a challenge → retryable `ChallengeError`, else first-byte `TARGET_TIMEOUT` |
-| inter-delta idle | max gap once the answer started | `PARTIAL_RESPONSE` with salvage |
-| wall-clock | the whole request, across *all* retries | `TARGET_TIMEOUT` (not retried) |
+| timer            | bounds                                     | on expiry                                                                                    |
+| ---------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| per-navigation   | Playwright's own `goto` / response headers | navigation `TARGET_TIMEOUT` (retryable)                                                      |
+| first-byte       | response obtained → first rendered token   | inspect the page: a challenge → retryable `ChallengeError`, else first-byte `TARGET_TIMEOUT` |
+| inter-delta idle | max gap once the answer started            | `PARTIAL_RESPONSE` with salvage                                                              |
+| wall-clock       | the whole request, across _all_ retries    | `TARGET_TIMEOUT` (not retried)                                                               |
 
 The wall-clock is one outer `cockatiel` timeout wrapping the retries and is never cleared once streaming starts, so endpoint latency is bounded and never `retries × wall-clock`. The first-byte and idle timers are manual typed timers rather than `cockatiel` timeouts, because a `cockatiel` timeout throws `TaskCancelledError`, which the retry filter wouldn't match, it would never retry.
 
@@ -63,7 +69,15 @@ A model **refusal** ("I can't help with that") is a valid `200` answer, not a bl
 
 ## Concurrency
 
-One long-lived Chromium; a `generic-pool` of incognito **contexts** is the concurrency control. `max` is the hard cap; over it, requests wait up to an acquire budget and then get `TARGET_UNAVAILABLE` (503) rather than an unbounded fan-out of browsers. A healthy context is cleaned (cookies/permissions cleared) and released; a poisoned one is destroyed so the next retry starts fresh. Contexts retire after a set number of uses.
+One long-lived Chromium; a `generic-pool` of incognito **contexts** is the concurrency control. `max` is the hard cap; over it, requests wait up to an acquire budget and then get `TARGET_UNAVAILABLE` (503) rather than an unbounded fan-out of browsers. A poisoned attempt (a block or challenge) destroys its context so the next retry starts on a fresh one. On success the context is not returned to the pool; it becomes the conversation's held context (see below) and is destroyed only when the conversation closes, so `max` bounds live conversations plus in-flight opens together.
+
+## Conversations
+
+Every response carries a `conversation_id`. If the caller omits it the engine mints one (`randomUUID`) and returns it; a brand-new isolated context is opened for it. If the caller sends an id the engine continues that chat, or opens a new one under that id if it has never seen it (or it has since expired). Continuing types the follow-up into the same page and reads the answer back, so ChatGPT's own front end supplies the context, Hermod stores only the handle.
+
+The follow-up read is turn-count aware: before submitting, it records how many assistant turns are on the page, then waits for the count to exceed that baseline before reading, so it captures the _new_ answer rather than re-reading the previous one.
+
+State is deliberately ephemeral and in-memory. A `ConversationManager` holds `id -> { context, page, lastUsedAt }`; a sweeper closes anything idle past `CONVERSATION_TTL_MS`, and opening past capacity evicts the least-recently-used one (capacity mirrors `POOL_MAX`, since each live conversation holds a pooled context). Closing a conversation shuts its page and destroys its context. Nothing is persisted: a restart, a crash, a TTL lapse, or an eviction ends the chat, and reusing the id then transparently starts fresh. This is single-process by construction, several replicas would need sticky routing or a shared session map, which is the durable-resume roadmap item. The alternative, a full browser process per chat, buys OS-level isolation that a separate context already provides, at roughly 100 to 200 MB and a launch per conversation, so it was not worth it here.
 
 ## Geo / proxy
 
