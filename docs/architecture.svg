@@ -27,16 +27,24 @@
   <g fill="#e6f0ff" font-size="12" text-anchor="middle">
     <text x="989"  y="122">Sentinel PoW</text>
     <text x="1133" y="122">conduit_token</text>
-    <text x="989"  y="188">Turnstile</text>
-    <text x="1133" y="188">unauth-mweb</text>
+    <text x="989"  y="188">unauth-mweb</text>
+    <text x="1133" y="188">Turnstile</text>
     <text x="1061" y="256">answer &#8594; the DOM</text>
   </g>
   <g fill="#8fb3e0" font-size="9" text-anchor="middle">
     <text x="989"  y="138">chat-requirements</text>
     <text x="1133" y="138">/conversation/prepare</text>
-    <text x="989"  y="204">Cloudflare</text>
-    <text x="1133" y="204">HTML partials</text>
+    <text x="989"  y="204">HTML partials</text>
+    <text x="1133" y="204">Cloudflare</text>
     <text x="1061" y="272">web-mobile-partial HTML, rendered</text>
+  </g>
+
+  <!-- the gauntlet the site runs, in order -->
+  <g stroke="#9cc4ff" stroke-width="1.5" fill="none" marker-end="url(#ah)">
+    <line x1="1056" y1="125" x2="1064" y2="125"/>
+    <line x1="1133" y1="150" x2="1133" y2="164"/>
+    <line x1="1066" y1="191" x2="1058" y2="191"/>
+    <line x1="989"  y1="216" x2="989"  y2="232"/>
   </g>
 
   <!-- Hermod's own components -->
