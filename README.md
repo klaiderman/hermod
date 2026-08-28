@@ -110,9 +110,28 @@ curl -X POST http://localhost:3000/v1/queries \
 }
 ```
 
-`response_text` is the answer as plain text (typographic punctuation, curly quotes, dashes, ellipses, is normalized to ASCII, and zero-width and control glyphs are stripped) and `markdown_text` keeps the raw markdown verbatim. `conversation_id` is always returned: the server mints one when you don't send it, and reusing it continues the same chat (see [Conversations](#conversations)). `llm_model` and `search_queries` come back null or empty on the signed-out surface, which doesn't expose a model id or the model's search queries; they populate on the authenticated `backend-api` surface that does expose them, as `citations` does whenever the answer carries them. Nothing is guessed: a field the page doesn't give up stays null. `parse=false` returns `response_text` as the raw markdown with everything else nulled (except `conversation_id`). `geo_location` is accepted and validated but currently inert (see the proxy seam in the design notes). Every request is tagged with a `request_id` that honors an inbound `X-Request-Id`, is echoed on the response header, and is threaded through every log line.
+**Request body** — `source` and `prompt` are required, the rest are optional:
 
-The request body: `source` and `prompt` are required; `parse` (default `true`), `conversation_id`, and `geo_location` are optional.
+| field             | type    | default | meaning                                                                                                    |
+| ----------------- | ------- | ------- | ---------------------------------------------------------------------------------------------------------- |
+| `source`          | string  | —       | Target site. Only `chatgpt` is live; anything else is `422 UNSUPPORTED_SOURCE`.                            |
+| `prompt`          | string  | —       | The prompt to send.                                                                                        |
+| `parse`           | boolean | `true`  | `true` normalizes the answer; `false` returns raw markdown in `response_text` with everything else nulled. |
+| `conversation_id` | string  | —       | Omit to start a fresh chat; send one back to continue it (see [Conversations](#conversations)).            |
+| `geo_location`    | string  | —       | Accepted and validated but currently inert (the proxy seam in the design notes).                           |
+
+**Response `content`** — and why some fields are null on the signed-out surface:
+
+| field             | type           | notes                                                                                                                                             |
+| ----------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `response_text`   | string         | The answer as plain text. Typographic punctuation (curly quotes, dashes, ellipses) is normalized to ASCII and zero-width/control glyphs stripped. |
+| `markdown_text`   | string \| null | The raw markdown verbatim; `null` when `parse=false`.                                                                                             |
+| `citations`       | array          | `{ title, url }` entries whenever the answer carries sources; otherwise `[]`.                                                                     |
+| `llm_model`       | string \| null | The model id. `null` on the signed-out surface, which doesn't expose it; it populates on the authenticated `backend-api` surface.                 |
+| `conversation_id` | string         | Always returned. The server mints one when you don't send it; reuse it to continue the chat.                                                      |
+| `search_queries`  | array          | The model's web-search queries. `[]` on the signed-out surface, which doesn't expose them.                                                        |
+
+Nothing is guessed: a field the page doesn't give up stays null. Every request also gets a `request_id` (honoring an inbound `X-Request-Id`) that is echoed on the response header and threaded through every log line.
 
 Failures come back classified, never as `{ "error": "something went wrong" }`:
 
