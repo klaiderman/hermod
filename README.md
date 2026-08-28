@@ -110,17 +110,17 @@ curl -X POST http://localhost:3000/v1/queries \
 }
 ```
 
-**Request body** — `source` and `prompt` are required, the rest are optional:
+**Request body.** `source` and `prompt` are required, the rest are optional:
 
-| field             | type    | default | meaning                                                                                                    |
-| ----------------- | ------- | ------- | ---------------------------------------------------------------------------------------------------------- |
-| `source`          | string  | —       | Target site. Only `chatgpt` is live; anything else is `422 UNSUPPORTED_SOURCE`.                            |
-| `prompt`          | string  | —       | The prompt to send.                                                                                        |
-| `parse`           | boolean | `true`  | `true` normalizes the answer; `false` returns raw markdown in `response_text` with everything else nulled. |
-| `conversation_id` | string  | —       | Omit to start a fresh chat; send one back to continue it (see [Conversations](#conversations)).            |
-| `geo_location`    | string  | —       | Accepted and validated but currently inert (the proxy seam in the design notes).                           |
+| field             | type    | default  | meaning                                                                                                    |
+| ----------------- | ------- | -------- | ---------------------------------------------------------------------------------------------------------- |
+| `source`          | string  | required | Target site. Only `chatgpt` is live; anything else is `422 UNSUPPORTED_SOURCE`.                            |
+| `prompt`          | string  | required | The prompt to send.                                                                                        |
+| `parse`           | boolean | `true`   | `true` normalizes the answer; `false` returns raw markdown in `response_text` with everything else nulled. |
+| `conversation_id` | string  | none     | Omit to start a fresh chat; send one back to continue it (see [Conversations](#conversations)).            |
+| `geo_location`    | string  | none     | Accepted and validated but currently inert (the proxy seam in the design notes).                           |
 
-**Response `content`** — and why some fields are null on the signed-out surface:
+**Response `content`.** Why some fields are null on the signed-out surface:
 
 | field             | type           | notes                                                                                                                                             |
 | ----------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
