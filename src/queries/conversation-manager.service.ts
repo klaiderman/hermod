@@ -89,6 +89,14 @@ export class ConversationManager implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  markActive(id: string): void {
+    const session = this.sessions.get(id);
+
+    if (session) {
+      session.lastUsedAt = this.now();
+    }
+  }
+
   async close(id: string): Promise<void> {
     const session = this.sessions.get(id);
 

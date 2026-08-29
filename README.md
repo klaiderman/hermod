@@ -1,6 +1,6 @@
 # Hermod
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![Node](https://img.shields.io/badge/node-20%2B-blue.svg)](package.json) [![NestJS](https://img.shields.io/badge/NestJS-11-e0234e.svg?logo=nestjs)](package.json) [![tests](https://img.shields.io/badge/tests-56%20passing-brightgreen.svg)](test/) [![Repository](https://img.shields.io/badge/GitHub-klaiderman%2Fhermod-181717?logo=github)](https://github.com/klaiderman/hermod)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![Node](https://img.shields.io/badge/node-20%2B-blue.svg)](package.json) [![NestJS](https://img.shields.io/badge/NestJS-11-e0234e.svg?logo=nestjs)](package.json) [![tests](https://img.shields.io/badge/tests-63%20passing-brightgreen.svg)](test/) [![Repository](https://img.shields.io/badge/GitHub-klaiderman%2Fhermod-181717?logo=github)](https://github.com/klaiderman/hermod)
 
 Hermod answers an LLM prompt by driving a real, signed-out browser to ChatGPT's own web UI, submitting the prompt the way a person would, and reading the answer back as normalized JSON. There is no model and no API key inside Hermod: it never calls the OpenAI API. The answer comes out of the site's own front end, and Hermod is the layer that drives that front end, classifies what comes back, and refuses to dress a block up as a success.
 
@@ -186,7 +186,7 @@ npm test
 npm run test:e2e
 ```
 
-The 47 unit tests cover each piece in isolation (SSE framing, the block detector, the markdown stripper and its ASCII normalization, the DTO) and drive the whole engine against a fake strategy with tiny configured timeouts, so every failure path the assignment asks about (validation, unsupported source, success, timeout, rate-limit, blocked, retry, parse-failure) plus the conversation paths (minting an id, opening on a fresh id, continuing in the same page) run deterministically in milliseconds with no browser and no waiting. The 9 e2e tests exercise the real HTTP contract with the browser mocked, plus a real headless Chromium against a `page.route`-stubbed network to prove the capture and block-detection paths against actual DOM. Everything runs on fixtures, so code correctness is decoupled from whatever the live site is doing that day.
+The 54 unit tests cover each piece in isolation (SSE framing, the block detector, the markdown stripper and its ASCII normalization, the DTO, the conversation manager's TTL/eviction/close lifecycle on a controllable clock) and drive the whole engine against a fake strategy with tiny configured timeouts, so every failure path the assignment asks about (validation, unsupported source, success, timeout, rate-limit, blocked, retry, parse-failure) plus the conversation paths (minting an id, opening on a fresh id, continuing in the same page) run deterministically in milliseconds with no browser and no waiting. The 9 e2e tests exercise the real HTTP contract with the browser mocked, plus a real headless Chromium against a `page.route`-stubbed network to prove the capture and block-detection paths against actual DOM. Everything runs on fixtures, so code correctness is decoupled from whatever the live site is doing that day.
 
 ## The audit
 

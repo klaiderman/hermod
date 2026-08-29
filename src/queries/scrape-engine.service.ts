@@ -54,24 +54,37 @@ export class ScrapeEngine {
     let attempts = 0;
 
     try {
-      const outcome = await policy.execute(async () => {
+      const outcome = await policy.execute(async ({ signal }) => {
         attempts += 1;
         const context = await this.pool.acquire();
-        const page = await context.newPage();
+        let page: Page | null = null;
+        let opened = false;
 
         try {
+          page = await context.newPage();
           const answer = await this.runFirstTurn(strategy, page, req, attempts);
 
-          return { answer, readMode: strategy.readModeFor(page), context, page };
+          if (signal.aborted) {
+            throw new TargetTimeoutError('wall-clock', 'Per-request wall-clock budget exceeded.');
+          }
+
+          this.conversations.open(id, req.source, context, page);
+          opened = true;
+
+          return { answer, readMode: strategy.readModeFor(page) };
         } catch (e) {
-          await page.close().catch(() => undefined);
-          await this.pool.destroy(context);
           this.logAttemptFailed(req, attempts, e);
           throw e;
+        } finally {
+          if (!opened) {
+            if (page) {
+              await page.close().catch(() => undefined);
+            }
+
+            await this.pool.destroy(context);
+          }
         }
       });
-
-      this.conversations.open(id, req.source, outcome.context, outcome.page);
 
       this.logger.info(
         {
@@ -104,6 +117,8 @@ export class ScrapeEngine {
     req: ScrapeRequest,
     session: Conversation,
   ): Promise<EngineResult> {
+    this.conversations.markActive(session.id);
+
     const wallClock = timeout(this.config.timeouts.wallClockMs, TimeoutStrategy.Aggressive);
 
     try {

@@ -124,6 +124,7 @@ function fakeConversations(session?: Conversation) {
       get,
       open,
       touch,
+      markActive: jest.fn(),
       ensureCapacity,
       close: jest.fn(async () => undefined),
       size: 0,
