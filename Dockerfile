@@ -42,13 +42,16 @@ ENV NODE_ENV=production \
 
 COPY package.json ./
 COPY --from=builder /app/node_modules ./node_modules
+
+# Install Patchright's Chromium into the fixed browser path before copying the built
+# app, so the large browser download stays cached across code-only rebuilds.
+RUN npx patchright install chromium
+
 COPY --from=builder /app/dist ./dist
 
-# Install Patchright's Chromium into the fixed browser path, then make the app and
-# browser trees group-0 readable and writable so any non-root UID OpenShift injects
-# (added to GID 0) can execute the browser and write what it needs.
-RUN npx patchright install chromium \
-    && chgrp -R 0 /app /ms-playwright \
+# Make the app and browser trees group-0 readable and writable so any non-root UID
+# OpenShift injects (added to GID 0) can execute the browser and write what it needs.
+RUN chgrp -R 0 /app /ms-playwright \
     && chmod -R g=u /app /ms-playwright
 
 USER 1001:0
