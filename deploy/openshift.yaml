@@ -1,0 +1,105 @@
+# Hermod on OpenShift.
+#
+# Build the image in-cluster from this repo, then apply this file:
+#
+#   oc new-build --binary --name=hermod --strategy=docker
+#   oc start-build hermod --from-dir=. --follow
+#   oc apply -f deploy/openshift.yaml
+#
+# The image is left as image-registry.openshift-image-registry.svc:5000/<project>/hermod:latest,
+# which is where `oc new-build` pushes it; adjust the namespace or point at an external
+# registry as needed. Nothing here pins a UID: the restricted SCC injects an arbitrary
+# non-root UID in group 0, and the image is built to run under it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hermod
+  labels:
+    app: hermod
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hermod
+  template:
+    metadata:
+      labels:
+        app: hermod
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: hermod
+          image: image-registry.openshift-image-registry.svc:5000/hermod/hermod:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            - name: CHATGPT_BASE_URL
+              value: https://chatgpt.com
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          volumeMounts:
+            # readOnlyRootFilesystem is on, so every writable path the browser needs
+            # (HOME=/tmp, the Chromium profile, the Xvfb auth file) lives on this volume.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hermod
+  labels:
+    app: hermod
+spec:
+  selector:
+    app: hermod
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: hermod
+  labels:
+    app: hermod
+spec:
+  to:
+    kind: Service
+    name: hermod
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
