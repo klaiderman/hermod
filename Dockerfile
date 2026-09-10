@@ -35,6 +35,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends tini \
 ENV NODE_ENV=production \
     PORT=3000 \
     HEADLESS=false \
+    HEADFUL_OFFSCREEN=false \
     HOME=/tmp \
     XDG_CACHE_HOME=/tmp/.cache \
     XDG_CONFIG_HOME=/tmp/.config \
