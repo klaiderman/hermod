@@ -93,6 +93,10 @@ class FakeStrategy implements ScraperStrategy {
     }
   }
 
+  async appPresent(): Promise<boolean> {
+    return true;
+  }
+
   readModeFor(): ReadMode {
     return 'sse';
   }

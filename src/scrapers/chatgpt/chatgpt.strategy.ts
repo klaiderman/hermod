@@ -58,7 +58,7 @@ export class ChatGptStrategy implements ScraperStrategy {
       await this.submitPrompt(page, req.prompt);
     } catch (e) {
       if (isPlaywrightTimeout(e)) {
-        const verdict = await this.detector.fromPage(page);
+        const verdict = await this.detector.fromPage(page, await this.appPresent(page));
 
         if (verdict.blocked && verdict.reason === 'challenge') {
           throw new ChallengeError('Challenge/interstitial blocked prompt submission', verdict.layer);
@@ -124,7 +124,23 @@ export class ChatGptStrategy implements ScraperStrategy {
       }
     }
 
-    return this.detector.fromPage(page);
+    return this.detector.fromPage(page, await this.appPresent(page));
+  }
+
+  /**
+   * A visible composer or an existing assistant turn means ChatGPT's own UI is up,
+   * so the page body is conversation text rather than an interstitial.
+   */
+  async appPresent(page: Page): Promise<boolean> {
+    for (const selector of [CHATGPT.composerSelector, CHATGPT.assistantMessageSelector]) {
+      try {
+        if ((await page.locator(selector).count()) > 0) {
+          return true;
+        }
+      } catch {}
+    }
+
+    return false;
   }
 
   readModeFor(page: Page): ReadMode {

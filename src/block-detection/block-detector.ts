@@ -20,7 +20,15 @@ export class BlockDetector {
     return { blocked: false, reason: 'none', layer: 'none' };
   }
 
-  async fromPage(page: Page): Promise<BlockVerdict> {
+  /**
+   * `appPresent` has to come from the strategy: only it knows whether the target's
+   * own UI rendered. When it did, the page body holds conversation content, so a
+   * body marker there is the caller's prompt or the model's answer, never a
+   * challenge notice. Without this gate a prompt containing "access denied" makes
+   * the service classify its own input as a block and burn the retry budget.
+   * The widget selectors above are structural and stay active either way.
+   */
+  async fromPage(page: Page, appPresent = false): Promise<BlockVerdict> {
     for (const selector of CHALLENGE_SELECTORS) {
       try {
         if ((await page.locator(selector).count()) > 0) {
@@ -32,6 +40,10 @@ export class BlockDetector {
           };
         }
       } catch {}
+    }
+
+    if (appPresent) {
+      return { blocked: false, reason: 'none', layer: 'none' };
     }
 
     try {
@@ -52,7 +64,13 @@ export class BlockDetector {
     return { blocked: false, reason: 'unknown', layer: 'none' };
   }
 
-  async classify(page: Page, status: number, contentType: string, expectedStream: boolean): Promise<BlockVerdict> {
+  async classify(
+    page: Page,
+    status: number,
+    contentType: string,
+    expectedStream: boolean,
+    appPresent = false,
+  ): Promise<BlockVerdict> {
     const byStatus = this.fromStatus(status);
 
     if (byStatus.blocked) {
@@ -62,7 +80,7 @@ export class BlockDetector {
     const looksHtml = contentType.toLowerCase().includes('text/html');
 
     if (expectedStream && looksHtml) {
-      const byPage = await this.fromPage(page);
+      const byPage = await this.fromPage(page, appPresent);
 
       if (byPage.blocked) {
         return byPage;

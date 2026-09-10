@@ -61,6 +61,52 @@ describe('BlockDetector', () => {
     });
   });
 
+  describe("fromPage: a caller's own words must never classify their request as blocked", () => {
+    const promptEchoedInBody = {
+      title: 'ChatGPT',
+      body: 'You said: what is access denied\nChatGPT said: it usually means HTTP 403.',
+    };
+
+    it('does not block on a body marker once the target UI has rendered', async () => {
+      const page = fakePage(promptEchoedInBody);
+
+      expect(await detector.fromPage(page, true)).toMatchObject({ blocked: false, reason: 'none' });
+    });
+
+    it('still blocks on that same body when the target UI did NOT render', async () => {
+      const page = fakePage(promptEchoedInBody);
+
+      expect(await detector.fromPage(page, false)).toMatchObject({
+        blocked: true,
+        reason: 'challenge',
+        layer: 'content',
+      });
+    });
+
+    it('keeps the structural widget check active even when the UI has rendered', async () => {
+      const page = fakePage({ ...promptEchoedInBody, challengeSelectors: [CHALLENGE_SELECTORS[0] as string] });
+
+      expect(await detector.fromPage(page, true)).toMatchObject({
+        blocked: true,
+        reason: 'challenge',
+        layer: 'behavioral',
+      });
+    });
+
+    it('propagates the gate through classify', async () => {
+      const page = fakePage(promptEchoedInBody);
+
+      expect(await detector.classify(page, 200, 'text/html; charset=utf-8', true, true)).toMatchObject({
+        blocked: true,
+        detail: 'HTML where an event-stream was expected',
+      });
+      expect(await detector.classify(page, 200, 'text/event-stream', true, true)).toMatchObject({
+        blocked: false,
+        reason: 'none',
+      });
+    });
+  });
+
   describe('classify (a 200-challenge is TARGET_BLOCKED, never a success)', () => {
     it('treats HTML where an event-stream was expected as a challenge', async () => {
       const page = fakePage({ challengeSelectors: [CHALLENGE_SELECTORS[0] as string] });

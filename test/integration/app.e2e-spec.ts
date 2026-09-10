@@ -19,6 +19,9 @@ const NONE: BlockVerdict = { blocked: false, reason: 'none', layer: 'none' };
 
 const happyStrategy: ScraperStrategy = {
   source: 'chatgpt',
+  async appPresent() {
+    return true;
+  },
   async prepare() {},
   async submitAndAwaitResponse(): Promise<StrategyResponse> {
     return { status: 200, contentType: 'text/event-stream', rawChunks: async function* () {} };
