@@ -60,6 +60,14 @@ export interface ScraperStrategy {
 
   detectBlock(page: import('patchright').Page, res: StrategyResponse | null): Promise<BlockVerdict>;
 
+  /**
+   * Did the target's own application UI render on this page? Block detection needs
+   * this to tell a challenge interstitial apart from the app itself: once the app
+   * is up, its body text is conversation content, and matching block markers
+   * against it lets a caller's prompt classify its own request as blocked.
+   */
+  appPresent(page: import('patchright').Page): Promise<boolean>;
+
   continueTurn(page: import('patchright').Page, req: ScrapeRequest): AsyncIterable<NormalizedDelta>;
 
   readModeFor(page: import('patchright').Page): ReadMode;

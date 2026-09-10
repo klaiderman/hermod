@@ -1,0 +1,22 @@
+<!doctype html>
+<!-- A normal, working ChatGPT page whose CONVERSATION TEXT happens to contain a
+     block marker, because the caller asked about it. The app is clearly up: a
+     composer is present and both turns rendered. Nothing here is a challenge. -->
+<html>
+  <body>
+    <main>
+      <article data-message-author-role="user">
+        <div>what is access denied</div>
+      </article>
+      <article data-message-author-role="assistant">
+        <div>ChatGPT said:</div>
+        <div>"Access denied" usually means the server understood the request but refuses to
+        authorize it, which is what an HTTP 403 status code expresses.</div>
+      </article>
+    </main>
+    <form>
+      <textarea id="prompt-textarea" placeholder="Ask anything"></textarea>
+      <button data-testid="send-button" aria-label="Send prompt"></button>
+    </form>
+  </body>
+</html>
