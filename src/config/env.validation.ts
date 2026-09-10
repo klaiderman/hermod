@@ -53,10 +53,15 @@ export class EnvironmentVariables {
   @IsOptional()
   HEADLESS = false;
 
+  // Defaults to true so a local run does not pop Chromium windows onto the
+  // developer's desktop (headful mode opens one window per BrowserContext).
+  // The container pins this to false in its Dockerfile ENV: under Xvfb there is
+  // no desktop to hide from, and that is the configuration verified against the
+  // live target.
   @Transform(toBool)
   @IsBoolean()
   @IsOptional()
-  HEADFUL_OFFSCREEN = false;
+  HEADFUL_OFFSCREEN = true;
 
   @Transform(toInt)
   @IsInt()
